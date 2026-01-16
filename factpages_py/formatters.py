@@ -27,8 +27,8 @@ def format_field_summary(
     lines.append("=" * 60)
 
     # Basic info
-    lines.append(f"Status:     {field.get('fldStatus', 'N/A')}")
-    lines.append(f"Operator:   {field.get('fldOperatorCompanyName', 'N/A')}")
+    lines.append(f"Status:     {field.get('fldCurrentActivitySatus', 'N/A')}")
+    lines.append(f"Operator:   {field.get('cmpLongName', 'N/A')}")
     lines.append(f"HC Type:    {field.get('fldHcType', 'N/A')}")
     lines.append(f"Main Area:  {field.get('fldMainArea', 'N/A')}")
 

@@ -4,7 +4,7 @@ Local Database Management
 High-performance local storage for Factpages data using Parquet format.
 
 Storage structure:
-    data_dir/
+    factpages_data/
     ├── _metadata.json       # Sync timestamps, record counts
     ├── discovery.parquet    # Each dataset as separate Parquet file
     ├── field.parquet
@@ -90,7 +90,7 @@ class Database:
     - Memory-mapped reading
 
     Example:
-        >>> db = Database('./data')
+        >>> db = Database()  # Uses ./factpages_data by default
         >>>
         >>> # Check if dataset is available locally
         >>> if db.has_dataset('discovery'):
@@ -104,15 +104,15 @@ class Database:
     SIDELOAD_PREFIX = "sideload_"  # Prefix for sideloaded datasets
     SIDELOAD_DIR = "sideloaded"    # Subdirectory for sideloaded data
 
-    def __init__(self, data_dir: Union[str, Path] = "./data"):
+    def __init__(self, data_dir: Union[str, Path] = "./factpages_data"):
         """
         Initialize the database.
 
         Args:
-            data_dir: Directory to store the Parquet files
+            data_dir: Directory to store the Parquet files (default: ./factpages_data)
 
         Storage structure:
-            data_dir/
+            factpages_data/
             ├── _metadata.json           # API data metadata
             ├── field.parquet            # API data
             ├── discovery.parquet

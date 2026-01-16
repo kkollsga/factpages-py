@@ -12,9 +12,10 @@ Example:
 """
 
 import json
+import warnings
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, List, Dict
+from typing import TYPE_CHECKING, Optional, List, Dict, Any
 
 import pandas as pd
 
@@ -219,8 +220,8 @@ class EntityDataFrame(pd.DataFrame):
             'Wells Drilled': ['wlbWellboreName', 'wlbPurpose', 'wlbStatus', 'wlbTotalDepth', 'wlbCompletionDate'],
             'Facilities': ['fclName', 'fclKind', 'fclPhase', 'fclStatus'],
             'Discoveries': ['dscName', 'dscDiscoveryYear', 'dscHcType', 'dscCurrentActivityStatus'],
-            'Operated Fields': ['fldName', 'fldStatus', 'fldHcType', 'fldMainArea'],
-            'Fields': ['fldName', 'fldStatus', 'fldHcType', 'fldMainArea'],
+            'Operated Fields': ['fldName', 'fldCurrentActivitySatus', 'fldHcType', 'fldMainArea'],
+            'Fields': ['fldName', 'fldCurrentActivitySatus', 'fldHcType', 'fldMainArea'],
             'Formation Tops': ['lsuName', 'lsuTopDepth', 'lsuBottomDepth', 'lsuLevel'],
             'DST Results': ['dstTestNumber', 'dstFromDepth', 'dstToDepth', 'dstChokeSize', 'dstOilRate'],
             'Cores': ['wlbCoreNumber', 'wlbCoreIntervalTop', 'wlbCoreIntervalBottom'],
@@ -301,6 +302,33 @@ class Field:
         self._production_cache: Optional[pd.DataFrame] = None
         self._reserves_cache: Optional[pd.DataFrame] = None
 
+    def _get_column(self, column: str, default: Any = '') -> Any:
+        """
+        Get a column value with warning if column doesn't exist.
+
+        Args:
+            column: Column name to retrieve
+            default: Default value if column doesn't exist
+
+        Returns:
+            Column value or default
+        """
+        if column in self._data.index:
+            return self._data[column]
+
+        # Column doesn't exist - show warning with valid options
+        valid_cols = sorted([c for c in self._data.index if not c.startswith('_')])
+        # Find similar column names to suggest
+        similar = [c for c in valid_cols if column.lower() in c.lower() or c.lower() in column.lower()]
+
+        msg = f"Column '{column}' not found in field data."
+        if similar:
+            msg += f" Similar columns: {similar[:5]}"
+        else:
+            msg += f" Valid columns: {valid_cols[:10]}..."
+        warnings.warn(msg, UserWarning, stacklevel=3)
+        return default
+
     # =========================================================================
     # Basic Properties
     # =========================================================================
@@ -308,49 +336,49 @@ class Field:
     @property
     def id(self) -> int:
         """Field's unique NPD ID."""
-        return int(self._data.get('fldNpdidField', 0))
+        return int(self._get_column('fldNpdidField', 0))
 
     @property
     def name(self) -> str:
         """Field name."""
-        return self._data.get('fldName', '')
+        return self._get_column('fldName', '')
 
     @property
     def status(self) -> str:
-        """Current field status (e.g., 'PRODUCING', 'SHUT DOWN')."""
-        return self._data.get('fldStatus', '')
+        """Current field status (e.g., 'Producing', 'Shut down')."""
+        return self._get_column('fldCurrentActivitySatus', '')
 
     @property
     def operator(self) -> str:
         """Current operator name."""
-        return self._data.get('fldOperatorCompanyName', '')
+        return self._get_column('cmpLongName', '')
 
     @property
     def hc_type(self) -> str:
         """Hydrocarbon type (OIL, GAS, OIL/GAS, etc.)."""
-        return self._data.get('fldHcType', '')
+        return self._get_column('fldHcType', '')
 
     @property
     def main_area(self) -> str:
         """Main area (North Sea, Norwegian Sea, Barents Sea)."""
-        return self._data.get('fldMainArea', '')
+        return self._get_column('fldMainArea', '')
 
     @property
     def discovery_year(self) -> Optional[int]:
         """Year the field was discovered."""
-        year = self._data.get('fldDiscoveryYear')
+        year = self._get_column('fldDiscoveryYear', None)
         return int(year) if pd.notna(year) else None
 
     @property
     def production_start(self) -> Optional[str]:
         """Production start date."""
-        return self._data.get('fldProdStartDate')
+        return self._get_column('fldProdStartDate', None)
 
     @property
     def geometry(self) -> Optional[dict]:
         """Field geometry as GeoJSON dict."""
         import json
-        geom_str = self._data.get('_geometry')
+        geom_str = self._get_column('_geometry', None)
         if geom_str and isinstance(geom_str, str):
             return json.loads(geom_str)
         return None
@@ -774,6 +802,34 @@ class Field:
             lines.append(f"Discovered: {self.discovery_year}")
         if self.production_start:
             lines.append(f"Prod Start: {self.production_start}")
+
+        # Add reserves
+        reserves = self.reserves
+        if reserves:
+            lines.append(f"\nReserves:")
+            if reserves.get('oil_msm3', 0) > 0:
+                lines.append(f"  Oil:         {reserves['oil_msm3']:,.1f} mill Sm3")
+            if reserves.get('gas_bsm3', 0) > 0:
+                lines.append(f"  Gas:         {reserves['gas_bsm3']:,.1f} bill Sm3")
+            if reserves.get('ngl_mtoe', 0) > 0:
+                lines.append(f"  NGL:         {reserves['ngl_mtoe']:,.1f} mill toe")
+            if reserves.get('condensate_msm3', 0) > 0:
+                lines.append(f"  Condensate:  {reserves['condensate_msm3']:,.1f} mill Sm3")
+
+        # Add cumulative production
+        try:
+            history = self.production_history(clean=True)
+            if not history.empty:
+                total_oil = history['oil_msm3'].sum() if 'oil_msm3' in history.columns else 0
+                total_gas = history['gas_bsm3'].sum() if 'gas_bsm3' in history.columns else 0
+                if total_oil > 0 or total_gas > 0:
+                    lines.append(f"\nProduced (cumulative):")
+                    if total_oil > 0:
+                        lines.append(f"  Oil:         {total_oil:,.1f} mill Sm3")
+                    if total_gas > 0:
+                        lines.append(f"  Gas:         {total_gas:,.1f} bill Sm3")
+        except Exception:
+            pass  # Skip if production data unavailable
 
         # Add partners summary
         partners = self.partners
@@ -1517,7 +1573,7 @@ class Company:
         fields = self._db.get_or_none('field')
         operated_fields = set()
         if fields is not None:
-            operated = fields[fields['fldOperatorCompanyName'] == self.name]
+            operated = fields[fields['cmpLongName'] == self.name]
             operated_fields = set(operated['fldName'].tolist())
 
         interests = []
@@ -1555,11 +1611,11 @@ class Company:
         if fields is None:
             return EntityDataFrame(entity_type="Operated Fields")
 
-        operated = fields[fields['fldOperatorCompanyName'] == self.name]
+        operated = fields[fields['cmpLongName'] == self.name]
         return EntityDataFrame(
             operated,
             entity_type="Operated Fields",
-            display_columns=['fldName', 'fldStatus', 'fldHcType', 'fldMainArea']
+            display_columns=['fldName', 'fldCurrentActivitySatus', 'fldHcType', 'fldMainArea']
         )
 
     @property

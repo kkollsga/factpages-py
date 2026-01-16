@@ -284,7 +284,7 @@ class SyncEngine:
         >>> from factpages_py.sync import SyncEngine, IfStale
         >>>
         >>> api = Factpages()
-        >>> db = Database('./data')
+        >>> db = api.db  # Uses ./factpages_data by default
         >>> engine = SyncEngine(api, db)
         >>>
         >>> # Sync entities if older than 7 days
@@ -826,7 +826,7 @@ class SyncEngine:
 # =============================================================================
 
 def quick_sync(
-    data_dir: str = "./data",
+    data_dir: str = "./factpages_data",
     categories: Optional[list[str]] = None,
     max_age_days: int = 7,
     progress: bool = True
@@ -847,7 +847,7 @@ def quick_sync(
 
     Example:
         >>> from factpages_py.sync import quick_sync
-        >>> db = quick_sync('./data', categories=['entities'])
+        >>> db = quick_sync(categories=['entities'])
         >>> discoveries = db.get('discovery')
     """
     from .client import Factpages

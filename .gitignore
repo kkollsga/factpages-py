@@ -1,6 +1,6 @@
 # Project-specific
 .claude/
-data/
+factpages_data/
 docs/
 examples/
 tests/

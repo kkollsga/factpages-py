@@ -206,7 +206,7 @@ class Factpages:
 
     def __init__(
         self,
-        data_dir: Union[str, Path] = "./data",
+        data_dir: Union[str, Path] = "./factpages_data",
         timeout: Optional[int] = None,
         rate_limit: Optional[float] = None,
         auto_sync: bool = False,
@@ -953,7 +953,7 @@ class Factpages:
             return pd.DataFrame()
 
         if status:
-            df = df[df['fldStatus'] == status]
+            df = df[df['fldCurrentActivitySatus'] == status]
 
         return df
 

@@ -104,8 +104,8 @@ print(f"Depth: {wellbore.total_depth}m")
 fields = fp.db.get('field')
 discoveries = fp.db.get('discovery')
 
-# Filter data
-producing = fields[fields['fldCurrentActivityStatus'] == 'Producing']
+# Filter data (note: API has typo 'Satus' instead of 'Status')
+producing = fields[fields['fldCurrentActivitySatus'] == 'Producing']
 ```
 
 ### Sync Specific Tables

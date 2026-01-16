@@ -9,14 +9,7 @@
       "id_field": "fldNpdidField",
       "name_field": "fldName",
       "has_geometry": true,
-      "rename": {
-        "fldNpdidField": "npdid_field",
-        "fldName": "field_name",
-        "fldStatus": "status",
-        "fldHcType": "hc_type",
-        "fldMainArea": "main_area",
-        "fldOperatorCompanyName": "operator"
-      },
+      "rename": {},
       "foreign_keys": {}
     },
 
@@ -26,15 +19,7 @@
       "id_field": "dscNpdidDiscovery",
       "name_field": "dscName",
       "has_geometry": true,
-      "rename": {
-        "dscNpdidDiscovery": "npdid_discovery",
-        "dscName": "discovery_name",
-        "dscCurrentActivityStatus": "status",
-        "dscHcType": "hc_type",
-        "dscMainArea": "main_area",
-        "dscDiscoveryYear": "discovery_year",
-        "fldNpdidField": "npdid_field"
-      },
+      "rename": {},
       "foreign_keys": {
         "fldNpdidField": {
           "target_table": "field",
@@ -51,18 +36,7 @@
       "id_field": "wlbNpdidWellbore",
       "name_field": "wlbWellboreName",
       "has_geometry": true,
-      "rename": {
-        "wlbNpdidWellbore": "npdid_wellbore",
-        "wlbWellboreName": "wellbore_name",
-        "wlbStatus": "status",
-        "wlbPurpose": "purpose",
-        "wlbContent": "content",
-        "wlbMainArea": "main_area",
-        "wlbTotalDepth": "total_depth",
-        "fldNpdidField": "npdid_field",
-        "dscNpdidDiscovery": "npdid_discovery",
-        "prlNpdidLicence": "npdid_licence"
-      },
+      "rename": {},
       "foreign_keys": {
         "fldNpdidField": {
           "target_table": "field",
@@ -91,14 +65,7 @@
       "id_field": "fclNpdidFacility",
       "name_field": "fclName",
       "has_geometry": true,
-      "rename": {
-        "fclNpdidFacility": "npdid_facility",
-        "fclName": "facility_name",
-        "fclKind": "kind",
-        "fclPhase": "phase",
-        "fclStatus": "status",
-        "fldNpdidField": "npdid_field"
-      },
+      "rename": {},
       "foreign_keys": {
         "fldNpdidField": {
           "target_table": "field",
@@ -115,12 +82,7 @@
       "id_field": "pipNpdidPipeline",
       "name_field": "pipName",
       "has_geometry": true,
-      "rename": {
-        "pipNpdidPipeline": "npdid_pipeline",
-        "pipName": "pipeline_name",
-        "pipMedium": "medium",
-        "pipCurrentPhase": "phase"
-      },
+      "rename": {},
       "foreign_keys": {}
     },
 
@@ -130,13 +92,7 @@
       "id_field": "prlNpdidLicence",
       "name_field": "prlName",
       "has_geometry": true,
-      "rename": {
-        "prlNpdidLicence": "npdid_licence",
-        "prlName": "licence_name",
-        "prlStatus": "status",
-        "prlMainArea": "main_area",
-        "prlCurrentPhase": "phase"
-      },
+      "rename": {},
       "foreign_keys": {}
     },
 
@@ -146,12 +102,7 @@
       "id_field": "cmpNpdidCompany",
       "name_field": "cmpLongName",
       "has_geometry": false,
-      "rename": {
-        "cmpNpdidCompany": "npdid_company",
-        "cmpLongName": "company_name",
-        "cmpShortName": "short_name",
-        "cmpOrgNumberBrReg": "org_number"
-      },
+      "rename": {},
       "foreign_keys": {}
     },
 
@@ -161,10 +112,7 @@
       "id_field": "plyNpdidPlay",
       "name_field": "plyName",
       "has_geometry": true,
-      "rename": {
-        "plyNpdidPlay": "npdid_play",
-        "plyName": "play_name"
-      },
+      "rename": {},
       "foreign_keys": {}
     }
   },
