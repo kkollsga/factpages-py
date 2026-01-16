@@ -259,19 +259,3 @@ PRODUCTION_DATASETS = [
 ]
 
 
-# =============================================================================
-# Data not available in API (must use FactPages downloads)
-# =============================================================================
-FACTPAGES_ONLY = """
-The following data is NOT available via the REST API and must be
-downloaded from FactPages (https://factpages.sodir.no/):
-
-- Prospects (prospect entities, geometries)
-- Prospect estimates (risk/volume data, low/basis/high scenarios)
-- Prospect-well relationships
-- Prospect-play linkages
-- Discovery-prospect linkages
-
-These datasets are critical for exploration analysis but are only
-available through FactPages CSV/Excel downloads.
-"""

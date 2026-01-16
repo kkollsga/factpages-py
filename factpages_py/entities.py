@@ -224,7 +224,6 @@ class EntityDataFrame(pd.DataFrame):
             'Formation Tops': ['lsuName', 'lsuTopDepth', 'lsuBottomDepth', 'lsuLevel'],
             'DST Results': ['dstTestNumber', 'dstFromDepth', 'dstToDepth', 'dstChokeSize', 'dstOilRate'],
             'Cores': ['wlbCoreNumber', 'wlbCoreIntervalTop', 'wlbCoreIntervalBottom'],
-            'Prospect Estimates': ['estimate_name', 'total_risk', 'oil_recover_total', 'gas_recover_total'],
         }
         return defaults.get(self._entity_type, list(self.columns[:5]))
 

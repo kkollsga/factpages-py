@@ -98,15 +98,6 @@ wellbores = data['wellbore']
 inventory = api.generate_inventory('sodir_inventory.json')
 ```
 
-## Data Not in API
-
-The REST API does **not** include prospect data:
-- Prospect entities and geometries
-- Risk/volume estimates
-- Prospect-well relationships
-
-This data must be downloaded from [FactPages](https://factpages.sodir.no/).
-
 ## API Reference
 
 ### SodirAPI
