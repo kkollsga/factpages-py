@@ -49,7 +49,7 @@ jobs:
 
       - name: Test import
         run: |
-          python -c "from factpages_py import FactpagesAPI; print('Import successful')"
+          python -c "from factpages_py import Factpages; print('Import successful')"
 
   build:
     name: Build distribution
