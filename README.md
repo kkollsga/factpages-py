@@ -1,34 +1,36 @@
-# sodir-api
+# factpages-py
 
-Python client for the Norwegian Offshore Directorate (Sodir) REST API.
+Python library for Norwegian Petroleum Factpages data.
 
 Access petroleum data from the Norwegian Continental Shelf including wellbores, discoveries, fields, production data, licensing, and more.
 
 ## Installation
 
 ```bash
-pip install sodir-api
+pip install factpages-py
 ```
 
 ## Quick Start
 
 ```python
-from sodir_api import SodirAPI
+from factpages_py import Factpages
 
-api = SodirAPI()
+fp = Factpages()
 
-# Download all discoveries
-discoveries = api.download('discovery')
-print(f"Found {len(discoveries)} discoveries")
+# Sync data from API
+fp.sync()
 
-# Filter by hydrocarbon type
-oil_discoveries = api.download('discovery', where="dscHcType='OIL'")
+# Access entities
+troll = fp.field("troll")
+print(troll.operator)
+print(troll.partners)
 
-# Get monthly production data
-production = api.download('field_production_monthly')
+# Get production data
+production = troll.production(2025, 8)
 
-# Search with keyword arguments
-producing_fields = api.search('field', fldCurrentActivitySatus='Producing')
+# Raw DataFrame access
+fields_df = fp.db.get('field')
+discoveries_df = fp.db.get('discovery')
 ```
 
 ## Available Datasets
@@ -45,80 +47,76 @@ The API provides access to 100+ datasets:
 | **Stratigraphy** | strat_litho, strat_chrono | 300+ |
 
 ```python
-# List all available datasets
-api.list_datasets()
+# List all available tables
+fp.db.list_tables()
 
-# Get metadata for a dataset
-api.summary('discovery')
-
-# Get field definitions
-fields = api.get_fields('wellbore')
+# Get specific dataset
+wellbores = fp.db.get('wellbore')
 ```
 
 ## Features
 
-- **Simple API**: Download data in one line of code
+- **Simple API**: Download and access data easily
 - **Pandas Integration**: Returns DataFrames ready for analysis
-- **Geometry Support**: Optionally include GeoJSON geometries
-- **Filtering**: SQL WHERE clause support for server-side filtering
-- **Pagination**: Automatically handles large datasets
-- **Rate Limiting**: Built-in rate limiting to be nice to the server
+- **Entity Access**: High-level entity objects with properties and relationships
+- **Graph Export**: Export data for knowledge graph construction
+- **Geometry Support**: Includes GeoJSON geometries where available
+- **Local Caching**: Data cached locally in Parquet format
+
+## Graph Integration
+
+Export data for knowledge graph libraries like rusty-graph:
+
+```python
+from factpages_py import Factpages
+import rusty_graph
+
+fp = Factpages()
+fp.sync()
+
+graph = rusty_graph.KnowledgeGraph()
+
+# One-liner bulk loading
+export = fp.graph.export_for_graph()
+graph.add_nodes_bulk(export['nodes'])
+graph.add_connections_from_source(export['connections'])
+```
 
 ## Examples
 
-### Download with Filtering
+### Entity Access
 
 ```python
-# Discoveries since 2010
-recent = api.download('discovery', where="dscDiscoveryYear >= 2010")
+# Get field by name
+troll = fp.field("troll")
+print(f"Operator: {troll.operator}")
+print(f"Status: {troll.status}")
 
-# Specific fields only
-df = api.download(
-    'wellbore',
-    fields='wlbWellboreName,wlbTotalDepth,wlbWaterDepth',
-    include_geometry=False
-)
+# Get wellbore
+wellbore = fp.wellbore("31/2-1")
+print(f"Depth: {wellbore.total_depth}m")
 ```
 
-### Multiple Datasets
+### Raw Data Access
 
 ```python
-# Download several datasets at once
-data = api.download_many(['discovery', 'field', 'wellbore'])
+# Get DataFrame directly
+fields = fp.db.get('field')
+discoveries = fp.db.get('discovery')
 
-discoveries = data['discovery']
-fields = data['field']
-wellbores = data['wellbore']
+# Filter data
+producing = fields[fields['fldCurrentActivityStatus'] == 'Producing']
 ```
 
-### Generate Inventory
+### Sync Specific Tables
 
 ```python
-# Generate complete inventory with all field definitions
-inventory = api.generate_inventory('sodir_inventory.json')
+# Sync only specific tables
+fp.sync(['field', 'discovery', 'wellbore'])
+
+# Sync all tables
+fp.sync()
 ```
-
-## API Reference
-
-### SodirAPI
-
-```python
-api = SodirAPI(timeout=30, rate_limit=0.2)
-```
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `list_datasets(category)` | List available datasets |
-| `get_metadata(dataset)` | Get dataset metadata |
-| `get_fields(dataset)` | Get field definitions as DataFrame |
-| `get_count(dataset, where)` | Get record count |
-| `download(dataset, ...)` | Download data as DataFrame |
-| `download_many(datasets)` | Download multiple datasets |
-| `search(dataset, **filters)` | Search with keyword filters |
-| `summary(dataset)` | Print dataset summary |
-| `generate_inventory(file)` | Generate complete inventory |
 
 ## License
 
