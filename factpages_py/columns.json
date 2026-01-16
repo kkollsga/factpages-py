@@ -1,0 +1,2499 @@
+{
+  "wellbore": {
+    "OBJECTID": {
+      "name": "OBJECTID",
+      "alias": "OBJECTID",
+      "type": "esriFieldTypeOID",
+      "nullable": false,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWellboreName": {
+      "name": "wlbWellboreName",
+      "alias": "Wellbore name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNpdidWellbore": {
+      "name": "wlbNpdidWellbore",
+      "alias": "NPDID wellbore",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "wellbore",
+      "is_primary_id": true
+    },
+    "wlbWell": {
+      "name": "wlbWell",
+      "alias": "Well name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillingOperator": {
+      "name": "wlbDrillingOperator",
+      "alias": "Drilling operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 60,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpFactPageUrl": {
+      "name": "cmpFactPageUrl",
+      "alias": "Drilling operator, url",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpNpdidCompany": {
+      "name": "cmpNpdidCompany",
+      "alias": "NPDID drilling operator",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "company",
+      "is_primary_id": false
+    },
+    "wlbProductionLicence": {
+      "name": "wlbProductionLicence",
+      "alias": "Production licence at wellhead",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbPurpose": {
+      "name": "wlbPurpose",
+      "alias": "Purpose",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbStatus": {
+      "name": "wlbStatus",
+      "alias": "Status",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbContent": {
+      "name": "wlbContent",
+      "alias": "Content",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWellType": {
+      "name": "wlbWellType",
+      "alias": "Type",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEntryDate": {
+      "name": "wlbEntryDate",
+      "alias": "Entered date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbCompletionDate": {
+      "name": "wlbCompletionDate",
+      "alias": "Completed date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbField": {
+      "name": "wlbField",
+      "alias": "Field",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillPermit": {
+      "name": "wlbDrillPermit",
+      "alias": "Drill permit",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 10,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDiscovery": {
+      "name": "wlbDiscovery",
+      "alias": "Discovery",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDiscoveryWellbore": {
+      "name": "wlbDiscoveryWellbore",
+      "alias": "Discovery wellbore",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 3,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbBottomHoleTemperature": {
+      "name": "wlbBottomHoleTemperature",
+      "alias": "Bottom hole temperature [\u00b0C]",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbSeismicLocation": {
+      "name": "wlbSeismicLocation",
+      "alias": "Seismic location",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbMaxInclation": {
+      "name": "wlbMaxInclation",
+      "alias": "Maximum inclination [\u00b0]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbKellyBushElevation": {
+      "name": "wlbKellyBushElevation",
+      "alias": "Kelly bushing elevation [m]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbKickOffPoint": {
+      "name": "wlbKickOffPoint",
+      "alias": "Kick off point [m RKB]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFinalVerticalDepth": {
+      "name": "wlbFinalVerticalDepth",
+      "alias": "Final vertical depth (TVD) [m RKB]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbTotalDepth": {
+      "name": "wlbTotalDepth",
+      "alias": "Total depth (MD) [m RKB]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWaterDepth": {
+      "name": "wlbWaterDepth",
+      "alias": "Water depth [m]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbAgeAtTd": {
+      "name": "wlbAgeAtTd",
+      "alias": "Oldest penetrated age",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFormationAtTd": {
+      "name": "wlbFormationAtTd",
+      "alias": "Oldest penetrated formation",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbMainArea": {
+      "name": "wlbMainArea",
+      "alias": "Main area",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillingFacility": {
+      "name": "wlbDrillingFacility",
+      "alias": "Drilling facility",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 50,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFacilityTypeDrilling": {
+      "name": "wlbFacilityTypeDrilling",
+      "alias": "Drilling facility type",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillingFacilityFixedOrMove": {
+      "name": "wlbDrillingFacilityFixedOrMove",
+      "alias": "Drilling facility category",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 10,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbProductionFacility": {
+      "name": "wlbProductionFacility",
+      "alias": "Production facility",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 50,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbLicensingActivity": {
+      "name": "wlbLicensingActivity",
+      "alias": "Licencing activity (round/APA)",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbMultilateral": {
+      "name": "wlbMultilateral",
+      "alias": "Multilateral",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 3,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbPurposePlanned": {
+      "name": "wlbPurposePlanned",
+      "alias": "Purpose - planned",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbContentPlanned": {
+      "name": "wlbContentPlanned",
+      "alias": "Content - planned",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEntryYear": {
+      "name": "wlbEntryYear",
+      "alias": "Entry year",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbCompletionYear": {
+      "name": "wlbCompletionYear",
+      "alias": "Completed year",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbReentry": {
+      "name": "wlbReentry",
+      "alias": "Reentry",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 3,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEntryPreDrillDate": {
+      "name": "wlbEntryPreDrillDate",
+      "alias": "Predrilled entry date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbCompPreDrillDate": {
+      "name": "wlbCompPreDrillDate",
+      "alias": "Predrilled completion date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbReleasedDate": {
+      "name": "wlbReleasedDate",
+      "alias": "Release date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbReclassFromWellbore": {
+      "name": "wlbReclassFromWellbore",
+      "alias": "Reclassified from/to wellbore",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDateReclass": {
+      "name": "wlbDateReclass",
+      "alias": "Reclassified date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbReentryExplorationActivity": {
+      "name": "wlbReentryExplorationActivity",
+      "alias": "Reentry activity",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbPlotSymbol": {
+      "name": "wlbPlotSymbol",
+      "alias": "Plot symbol",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFormationWithHc1": {
+      "name": "wlbFormationWithHc1",
+      "alias": "1st level with HC, formation",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbAgeWithHc1": {
+      "name": "wlbAgeWithHc1",
+      "alias": "1st level with HC, age",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFormationWithHc2": {
+      "name": "wlbFormationWithHc2",
+      "alias": "2nd level with HC, formation",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbAgeWithHc2": {
+      "name": "wlbAgeWithHc2",
+      "alias": "2nd level with HC, age",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFormationWithHc3": {
+      "name": "wlbFormationWithHc3",
+      "alias": "3rd level with HC, formation",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbAgeWithHc3": {
+      "name": "wlbAgeWithHc3",
+      "alias": "3rd level with HC, age",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillingDays": {
+      "name": "wlbDrillingDays",
+      "alias": "Drilling days",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbGeodeticDatum": {
+      "name": "wlbGeodeticDatum",
+      "alias": "Geodetic datum",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 6,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNsDeg": {
+      "name": "wlbNsDeg",
+      "alias": "NS degrees",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNsMin": {
+      "name": "wlbNsMin",
+      "alias": "NS minutes",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNsSec": {
+      "name": "wlbNsSec",
+      "alias": "NS seconds",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNsCode": {
+      "name": "wlbNsCode",
+      "alias": "NS code",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEwDeg": {
+      "name": "wlbEwDeg",
+      "alias": "EW degrees",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEwMin": {
+      "name": "wlbEwMin",
+      "alias": "EW minutes",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEwSec": {
+      "name": "wlbEwSec",
+      "alias": "EW seconds",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEwCode": {
+      "name": "wlbEwCode",
+      "alias": "EW code",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNsDecDeg": {
+      "name": "wlbNsDecDeg",
+      "alias": "NS decimal degrees",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEwDecDeg": {
+      "name": "wlbEwDecDeg",
+      "alias": "EW decimal degrees",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNsUtm": {
+      "name": "wlbNsUtm",
+      "alias": "NS UTM [m]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEwUtm": {
+      "name": "wlbEwUtm",
+      "alias": "EW UTM [m]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbUtmZone": {
+      "name": "wlbUtmZone",
+      "alias": "UTM zone",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNamePart1": {
+      "name": "wlbNamePart1",
+      "alias": "Wellbore name, part 1",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNamePart2": {
+      "name": "wlbNamePart2",
+      "alias": "Wellbore name, part 2",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNamePart3": {
+      "name": "wlbNamePart3",
+      "alias": "Wellbore name, part 3",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 2,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNamePart4": {
+      "name": "wlbNamePart4",
+      "alias": "Wellbore name, part 4",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNamePart5": {
+      "name": "wlbNamePart5",
+      "alias": "Wellbore name, part 5",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 2,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNamePart6": {
+      "name": "wlbNamePart6",
+      "alias": "Wellbore name, part 6",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 2,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFactPageUrl": {
+      "name": "wlbFactPageUrl",
+      "alias": "FactPage url",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFactMapUrl": {
+      "name": "wlbFactMapUrl",
+      "alias": "Factmaps",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbPressReleaseUrl": {
+      "name": "wlbPressReleaseUrl",
+      "alias": "Pressrelease url",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDiskosWellboreType": {
+      "name": "wlbDiskosWellboreType",
+      "alias": "DISKOS Well Type",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 20,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDiskosWellboreParent": {
+      "name": "wlbDiskosWellboreParent",
+      "alias": "DISKOS Wellbore Parent",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlNpdidProdLicenceTarget": {
+      "name": "prlNpdidProdLicenceTarget",
+      "alias": "NPDID production licence target",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscNpdidDiscovery": {
+      "name": "dscNpdidDiscovery",
+      "alias": "NPDID discovery",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "discovery",
+      "is_primary_id": false
+    },
+    "fldNpdidField": {
+      "name": "fldNpdidField",
+      "alias": "NPDID field",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "field",
+      "is_primary_id": false
+    },
+    "fclNpdidFacilityDrilling": {
+      "name": "fclNpdidFacilityDrilling",
+      "alias": "NPDID drilling facility",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNpdidFacilityProducing": {
+      "name": "fclNpdidFacilityProducing",
+      "alias": "NPDID production facility",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNpdidWellboreReclass": {
+      "name": "wlbNpdidWellboreReclass",
+      "alias": "NPDID wellbore reclassified from",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "wellbore",
+      "is_primary_id": false
+    },
+    "prlNpdidProductionLicence": {
+      "name": "prlNpdidProductionLicence",
+      "alias": "NPDID production licence drilled in",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEntryDay": {
+      "name": "wlbEntryDay",
+      "alias": "Entry day",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEntryMonth": {
+      "name": "wlbEntryMonth",
+      "alias": "Entry month",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbCompletionDay": {
+      "name": "wlbCompletionDay",
+      "alias": "Completed day",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbCompletionMonth": {
+      "name": "wlbCompletionMonth",
+      "alias": "Completed month",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillPerApprovedPermitDate": {
+      "name": "wlbDrillPerApprovedPermitDate",
+      "alias": "Date drillpermit approved",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillPerEwDeg": {
+      "name": "wlbDrillPerEwDeg",
+      "alias": "Planned position - EW",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillPerLegalRefEnLegalNote": {
+      "name": "wlbDrillPerLegalRefEnLegalNote",
+      "alias": "Legal reference",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1073741822,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillPerLegalRefNbLegalNote": {
+      "name": "wlbDrillPerLegalRefNbLegalNote",
+      "alias": "N/A - drillper_legal_ref_nb_legal_note",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1073741822,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillPerNbComment": {
+      "name": "wlbDrillPerNbComment",
+      "alias": "N/A drillper_nb_comment_EN",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 4000,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDrillPerNsDeg": {
+      "name": "wlbDrillPerNsDeg",
+      "alias": "Planned position - NS",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbEntryDatePlanned": {
+      "name": "wlbEntryDatePlanned",
+      "alias": "Planned entry date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbAliasName": {
+      "name": "wlbAliasName",
+      "alias": "Wellbore alias name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 50,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWdssQcDate": {
+      "name": "wlbWdssQcDate",
+      "alias": "Publication date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbSubSea": {
+      "name": "wlbSubSea",
+      "alias": "Subsea",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 3,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWdssVolumeReference": {
+      "name": "wlbWdssVolumeReference",
+      "alias": "WDSS volume reference",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbCoreSampleAvailable": {
+      "name": "wlbCoreSampleAvailable",
+      "alias": "Cores available for sampling?",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 3,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbCuttingsSamplesAvailable": {
+      "name": "wlbCuttingsSamplesAvailable",
+      "alias": "Cutting samples available?",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 3,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithCasingAndLot": {
+      "name": "wlbWithCasingAndLot",
+      "alias": "With casing and lot",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithCompositeLog": {
+      "name": "wlbWithCompositeLog",
+      "alias": "With composite log",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithCorePhoto": {
+      "name": "wlbWithCorePhoto",
+      "alias": "With core photo",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithCores": {
+      "name": "wlbWithCores",
+      "alias": "With cores",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithCuttings": {
+      "name": "wlbWithCuttings",
+      "alias": "With cuttings",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithDocReportedByLicensee": {
+      "name": "wlbWithDocReportedByLicensee",
+      "alias": "With doc reported by licensee",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithDst": {
+      "name": "wlbWithDst",
+      "alias": "With dst",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithFormationTops": {
+      "name": "wlbWithFormationTops",
+      "alias": "With lithostratigraphy",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithGeochemInfo": {
+      "name": "wlbWithGeochemInfo",
+      "alias": "With geochem info",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithLog": {
+      "name": "wlbWithLog",
+      "alias": "With log",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithMud": {
+      "name": "wlbWithMud",
+      "alias": "With mud",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithNpdPapers": {
+      "name": "wlbWithNpdPapers",
+      "alias": "With Norwegian Offshore Directorate papers",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithOilSamples": {
+      "name": "wlbWithOilSamples",
+      "alias": "With oil samples",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithOldWdss": {
+      "name": "wlbWithOldWdss",
+      "alias": "With old WDSS",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithPalySlides": {
+      "name": "wlbWithPalySlides",
+      "alias": "With paly slides",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbPluggedDate": {
+      "name": "wlbPluggedDate",
+      "alias": "Plugged date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbWithWellboreHistory": {
+      "name": "wlbWithWellboreHistory",
+      "alias": "With wellbore history",
+      "type": "esriFieldTypeSmallInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbLicenceTargetName": {
+      "name": "wlbLicenceTargetName",
+      "alias": "Prod. licence for drilling target",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 10,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbPluggedAbandonDate": {
+      "name": "wlbPluggedAbandonDate",
+      "alias": "Plugged and abondon date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNpdidSiteSurvey": {
+      "name": "wlbNpdidSiteSurvey",
+      "alias": "NPDID site survey",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbSiteSurvey": {
+      "name": "wlbSiteSurvey",
+      "alias": "Sitesurvey",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDateUpdatedMax": {
+      "name": "wlbDateUpdatedMax",
+      "alias": "Date all updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbDateUpdated": {
+      "name": "wlbDateUpdated",
+      "alias": "Date main level updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    }
+  },
+  "field": {
+    "OBJECTID": {
+      "name": "OBJECTID",
+      "alias": "OBJECTID",
+      "type": "esriFieldTypeOID",
+      "nullable": false,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldName": {
+      "name": "fldName",
+      "alias": "Field name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldCurrentActivitySatus": {
+      "name": "fldCurrentActivitySatus",
+      "alias": "Current activity status",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbName": {
+      "name": "wlbName",
+      "alias": "Discovery wellbore",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 60,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldDiscoveryYear": {
+      "name": "fldDiscoveryYear",
+      "alias": "Discovery year.",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldOwnerKind": {
+      "name": "fldOwnerKind",
+      "alias": "Owner kind",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldOwnerName": {
+      "name": "fldOwnerName",
+      "alias": "Owner name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldNpdidOwner": {
+      "name": "fldNpdidOwner",
+      "alias": "NPDID owner",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpLongName": {
+      "name": "cmpLongName",
+      "alias": "Operator name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpNpdidCompany": {
+      "name": "cmpNpdidCompany",
+      "alias": "NPDID company",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "company",
+      "is_primary_id": false
+    },
+    "fldMainSupplyBase": {
+      "name": "fldMainSupplyBase",
+      "alias": "Main supply base",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 50,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldHcType": {
+      "name": "fldHcType",
+      "alias": "Hydrocarbon type",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldMainArea": {
+      "name": "fldMainArea",
+      "alias": "Main area",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFactPageUrl": {
+      "name": "wlbFactPageUrl",
+      "alias": "Discovery wellbore fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldFactMapUrl": {
+      "name": "fldFactMapUrl",
+      "alias": "Factmaps",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldFactPageUrl": {
+      "name": "fldFactPageUrl",
+      "alias": "Fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbNpdidWellbore": {
+      "name": "wlbNpdidWellbore",
+      "alias": "NPDID wellbore",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "wellbore",
+      "is_primary_id": false
+    },
+    "fldNpdidField": {
+      "name": "fldNpdidField",
+      "alias": "NPDID field",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "field",
+      "is_primary_id": true
+    },
+    "fldGUID": {
+      "name": "fldGUID",
+      "alias": "fldGUID",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 2048,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldDateUpdated": {
+      "name": "fldDateUpdated",
+      "alias": "Date main level updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldDateUpdatedMax": {
+      "name": "fldDateUpdatedMax",
+      "alias": "Date all updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "Shape__Area": {
+      "name": "Shape__Area",
+      "alias": "SHAPE.STArea()",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "Shape__Length": {
+      "name": "Shape__Length",
+      "alias": "SHAPE.STLength()",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    }
+  },
+  "discovery": {
+    "OBJECTID": {
+      "name": "OBJECTID",
+      "alias": "OBJECTID",
+      "type": "esriFieldTypeOID",
+      "nullable": false,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscNpdidDiscovery": {
+      "name": "dscNpdidDiscovery",
+      "alias": "NPDID discovery",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "discovery",
+      "is_primary_id": true
+    },
+    "dscName": {
+      "name": "dscName",
+      "alias": "Discovery name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscCurrentActivityStatus": {
+      "name": "dscCurrentActivityStatus",
+      "alias": "Current activity status",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbName": {
+      "name": "wlbName",
+      "alias": "Discovery wellbore",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 60,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "wlbFactPageUrl": {
+      "name": "wlbFactPageUrl",
+      "alias": "Discovery wellbore fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscDiscoveryYear": {
+      "name": "dscDiscoveryYear",
+      "alias": "Discovery year",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldName": {
+      "name": "fldName",
+      "alias": "For more information, see field:",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldFactPageUrl": {
+      "name": "fldFactPageUrl",
+      "alias": "Field fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscDateFromInclInField": {
+      "name": "dscDateFromInclInField",
+      "alias": "Included in field from date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscFactPageUrl": {
+      "name": "dscFactPageUrl",
+      "alias": "Fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscFactMapUrl": {
+      "name": "dscFactMapUrl",
+      "alias": "Factmaps",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscOwnerKind": {
+      "name": "dscOwnerKind",
+      "alias": "Owner kind",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscOwnerName": {
+      "name": "dscOwnerName",
+      "alias": "Owner name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscOwnerFactPageUrl": {
+      "name": "dscOwnerFactPageUrl",
+      "alias": "Owner fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpLongName": {
+      "name": "cmpLongName",
+      "alias": "Operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpNpdidCompany": {
+      "name": "cmpNpdidCompany",
+      "alias": "NPDID company",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "company",
+      "is_primary_id": false
+    },
+    "dscHcType": {
+      "name": "dscHcType",
+      "alias": "HC type",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "ngpName": {
+      "name": "ngpName",
+      "alias": "Geoprovince",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 4,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "nmaName": {
+      "name": "nmaName",
+      "alias": "Main area",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscResInclInDiscoveryName": {
+      "name": "dscResInclInDiscoveryName",
+      "alias": "Resources incl. in",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscResInclInDiscoveryFactPageUr": {
+      "name": "dscResInclInDiscoveryFactPageUr",
+      "alias": "Resources incl. in fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscGUID": {
+      "name": "dscGUID",
+      "alias": "dscGUID",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 2048,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscDateUpdated": {
+      "name": "dscDateUpdated",
+      "alias": "Date main level updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "dscDateUpdatedMax": {
+      "name": "dscDateUpdatedMax",
+      "alias": "Date all updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fldNpdidField": {
+      "name": "fldNpdidField",
+      "alias": "NPDID field",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "field",
+      "is_primary_id": false
+    },
+    "Shape__Area": {
+      "name": "Shape__Area",
+      "alias": "SHAPE.STArea()",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "Shape__Length": {
+      "name": "Shape__Length",
+      "alias": "SHAPE.STLength()",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    }
+  },
+  "field_licensee": {},
+  "company": {
+    "OBJECTID": {
+      "name": "OBJECTID",
+      "alias": "OBJECTID",
+      "type": "esriFieldTypeOID",
+      "nullable": false,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpNpdidCompany": {
+      "name": "cmpNpdidCompany",
+      "alias": "NPDID company",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "company",
+      "is_primary_id": true
+    },
+    "cmpLongName": {
+      "name": "cmpLongName",
+      "alias": "Name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpShortName": {
+      "name": "cmpShortName",
+      "alias": "Shortname",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpGroup": {
+      "name": "cmpGroup",
+      "alias": "Group",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpOrgNumberBrReg": {
+      "name": "cmpOrgNumberBrReg",
+      "alias": "Organisation number",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpNationCode": {
+      "name": "cmpNationCode",
+      "alias": "Nation code",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 2,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpFactPageUrl": {
+      "name": "cmpFactPageUrl",
+      "alias": "Fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpActiveOnNcsCurrent": {
+      "name": "cmpActiveOnNcsCurrent",
+      "alias": "Currently active on NCS",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpActiveOnNcsFormer": {
+      "name": "cmpActiveOnNcsFormer",
+      "alias": "Former active on NCS",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpLicenceOperCurrent": {
+      "name": "cmpLicenceOperCurrent",
+      "alias": "Currently licence operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpLicenceOperFormer": {
+      "name": "cmpLicenceOperFormer",
+      "alias": "Former licence operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpLicenceLicenseeCurrent": {
+      "name": "cmpLicenceLicenseeCurrent",
+      "alias": "Currently licence licensee",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpLicenceLicenseeFormer": {
+      "name": "cmpLicenceLicenseeFormer",
+      "alias": "Former licence licensee",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpBsnsArrAreaOperCurrent": {
+      "name": "cmpBsnsArrAreaOperCurrent",
+      "alias": "Currently bsns. arr. area operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpBsnsArrAreaOperFormer": {
+      "name": "cmpBsnsArrAreaOperFormer",
+      "alias": "Former bsns. arr. area operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpBsnsArrAreaPartnerCurrent": {
+      "name": "cmpBsnsArrAreaPartnerCurrent",
+      "alias": "Currently bsns. arr. area parner",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpBsnsArrAreaPartnerFormer": {
+      "name": "cmpBsnsArrAreaPartnerFormer",
+      "alias": "Former bsns. arr. area parner",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpTufOperCurrent": {
+      "name": "cmpTufOperCurrent",
+      "alias": "Currently TUF operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpTufOperFormer": {
+      "name": "cmpTufOperFormer",
+      "alias": "Former TUF operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpTufPartnerCurrent": {
+      "name": "cmpTufPartnerCurrent",
+      "alias": "Currently TUF partner",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpTufPartnerFormer": {
+      "name": "cmpTufPartnerFormer",
+      "alias": "Former TUF partner",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpFacilityMoveableResponsible": {
+      "name": "cmpFacilityMoveableResponsible",
+      "alias": "Moveable facility responsible",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpFacilityFixedOperator": {
+      "name": "cmpFacilityFixedOperator",
+      "alias": "Fixed facility operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpSurveyPrefix": {
+      "name": "cmpSurveyPrefix",
+      "alias": "Survey prefiks",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 4,
+      "references_table": null,
+      "is_primary_id": false
+    }
+  },
+  "licence": {
+    "OBJECTID": {
+      "name": "OBJECTID",
+      "alias": "OBJECTID",
+      "type": "esriFieldTypeOID",
+      "nullable": false,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlNpdidLicence": {
+      "name": "prlNpdidLicence",
+      "alias": "NPDID production licence",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": true
+    },
+    "lcaNpdidLicensingActivity": {
+      "name": "lcaNpdidLicensingActivity",
+      "alias": "NPDID licensing activity",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlName": {
+      "name": "prlName",
+      "alias": "Production licence",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlLicensingActivityName": {
+      "name": "prlLicensingActivityName",
+      "alias": "Licensing activity",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlStatus": {
+      "name": "prlStatus",
+      "alias": "Status",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlStratigraphical": {
+      "name": "prlStratigraphical",
+      "alias": "Stratigraphical",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlActive": {
+      "name": "prlActive",
+      "alias": "Active",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlPartitionFrom": {
+      "name": "prlPartitionFrom",
+      "alias": "Partitioned from",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlNPDIDPartitionFrom": {
+      "name": "prlNPDIDPartitionFrom",
+      "alias": "NPDID \u2013 partitioned from",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlAdditAreaTo": {
+      "name": "prlAdditAreaTo",
+      "alias": "Additional area to",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlNPDIDAdditAreaTo": {
+      "name": "prlNPDIDAdditAreaTo",
+      "alias": "NPDID \u2013 additional area to",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlFactPageUrl": {
+      "name": "prlFactPageUrl",
+      "alias": "Fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlFactMapUrl": {
+      "name": "prlFactMapUrl",
+      "alias": "Factmaps",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlDateGranted": {
+      "name": "prlDateGranted",
+      "alias": "Date granted",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlDateValidTo": {
+      "name": "prlDateValidTo",
+      "alias": "Date valid to",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlOriginalArea": {
+      "name": "prlOriginalArea",
+      "alias": "Original area [km2]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlCurrentArea": {
+      "name": "prlCurrentArea",
+      "alias": "Current area [km2]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlPhaseCurrent": {
+      "name": "prlPhaseCurrent",
+      "alias": "Phase - current",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlMainArea": {
+      "name": "prlMainArea",
+      "alias": "Main area",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlDateInitialPeriodExpires": {
+      "name": "prlDateInitialPeriodExpires",
+      "alias": "Expiry date, initial period",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlInitialPeriod": {
+      "name": "prlInitialPeriod",
+      "alias": "In initial period",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 4,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlDateLastChanged": {
+      "name": "prlDateLastChanged",
+      "alias": "Date last changed",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpFactPageUrl": {
+      "name": "cmpFactPageUrl",
+      "alias": "Operator FactPage",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "cmpNpdidCompany": {
+      "name": "cmpNpdidCompany",
+      "alias": "NPDID company",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "company",
+      "is_primary_id": false
+    },
+    "cmpLongName": {
+      "name": "cmpLongName",
+      "alias": "Operator ",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlDateUpdated": {
+      "name": "prlDateUpdated",
+      "alias": "Date main level updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlDateUpdatedMax": {
+      "name": "prlDateUpdatedMax",
+      "alias": "Date all updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "prlColorHex": {
+      "name": "prlColorHex",
+      "alias": "Color",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 10,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "Shape__Area": {
+      "name": "Shape__Area",
+      "alias": "SHAPE.STArea()",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "Shape__Length": {
+      "name": "Shape__Length",
+      "alias": "SHAPE.STLength()",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    }
+  },
+  "facility": {
+    "OBJECTID": {
+      "name": "OBJECTID",
+      "alias": "OBJECTID",
+      "type": "esriFieldTypeOID",
+      "nullable": false,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNpdidFacility": {
+      "name": "fclNpdidFacility",
+      "alias": "NPDID facility",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "facility",
+      "is_primary_id": true
+    },
+    "fclNpdidCurrentOperator": {
+      "name": "fclNpdidCurrentOperator",
+      "alias": "NPDID operator",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNpdidCurrentRespCompany": {
+      "name": "fclNpdidCurrentRespCompany",
+      "alias": "NPDID responsible company",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": "company",
+      "is_primary_id": false
+    },
+    "fclFixedOrMoveable": {
+      "name": "fclFixedOrMoveable",
+      "alias": "Fixed or moveable",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclName": {
+      "name": "fclName",
+      "alias": "Name",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclKind": {
+      "name": "fclKind",
+      "alias": "Kind",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclPhase": {
+      "name": "fclPhase",
+      "alias": "Phase",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclFunctions": {
+      "name": "fclFunctions",
+      "alias": "Functions",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 400,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclGeodeticDatum": {
+      "name": "fclGeodeticDatum",
+      "alias": "Geodetic datum",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 10,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNsDeg": {
+      "name": "fclNsDeg",
+      "alias": "NS degrees",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNsMin": {
+      "name": "fclNsMin",
+      "alias": "NS minutes",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNsSec": {
+      "name": "fclNsSec",
+      "alias": "NS seconds",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNsCode": {
+      "name": "fclNsCode",
+      "alias": "NS code",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclEwDeg": {
+      "name": "fclEwDeg",
+      "alias": "EW degrees",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclEwMin": {
+      "name": "fclEwMin",
+      "alias": "EW minutes",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclEwSec": {
+      "name": "fclEwSec",
+      "alias": "EW seconds",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclEwCode": {
+      "name": "fclEwCode",
+      "alias": "EW code",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclUtmHemisphere": {
+      "name": "fclUtmHemisphere",
+      "alias": "UTM hemisphere",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclUtmZone": {
+      "name": "fclUtmZone",
+      "alias": "UTM zone",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNsUtm": {
+      "name": "fclNsUtm",
+      "alias": "NS UTM",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclEwUtm": {
+      "name": "fclEwUtm",
+      "alias": "EW UTM",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclRkb": {
+      "name": "fclRkb",
+      "alias": "RKB elevation [m]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclWaterDepth": {
+      "name": "fclWaterDepth",
+      "alias": "Water depth [m]",
+      "type": "esriFieldTypeDouble",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclStartupDate": {
+      "name": "fclStartupDate",
+      "alias": "Startup date",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclDesignLifetime": {
+      "name": "fclDesignLifetime",
+      "alias": "Design lifetime [year]",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclStatus": {
+      "name": "fclStatus",
+      "alias": "AOC status",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclSurface": {
+      "name": "fclSurface",
+      "alias": "Surface facility",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 1,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclBelongsToName": {
+      "name": "fclBelongsToName",
+      "alias": "Belongs to",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 41,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclBelongsToS": {
+      "name": "fclBelongsToS",
+      "alias": "Norwegian Offshore Directorate belongs to",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 19,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclBelongsToKind": {
+      "name": "fclBelongsToKind",
+      "alias": "Belongs to, kind",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclCurrentOperatorName": {
+      "name": "fclCurrentOperatorName",
+      "alias": "Current operator",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclCurrentRespCompanyName": {
+      "name": "fclCurrentRespCompanyName",
+      "alias": "Current responsible company",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 100,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNationCode2": {
+      "name": "fclNationCode2",
+      "alias": "Nation code",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 2,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclNationName": {
+      "name": "fclNationName",
+      "alias": "Nation",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 40,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclBelongsToFactPageUrl": {
+      "name": "fclBelongsToFactPageUrl",
+      "alias": "Belongs to, fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclFactPageUrl": {
+      "name": "fclFactPageUrl",
+      "alias": "Fact page",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclFactMapUrl": {
+      "name": "fclFactMapUrl",
+      "alias": "Factmaps",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 200,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclSlotCapacityGross": {
+      "name": "fclSlotCapacityGross",
+      "alias": "Slot capasity (gross)",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclSlotCapacityNet": {
+      "name": "fclSlotCapacityNet",
+      "alias": "Slot capasity (net)",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclDateUpdated": {
+      "name": "fclDateUpdated",
+      "alias": "Date updated",
+      "type": "esriFieldTypeDate",
+      "nullable": true,
+      "length": 8,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclFormalName1Quadrant": {
+      "name": "fclFormalName1Quadrant",
+      "alias": "Formal name, part 1",
+      "type": "esriFieldTypeString",
+      "nullable": true,
+      "length": 4,
+      "references_table": null,
+      "is_primary_id": false
+    },
+    "fclFormalName2Block": {
+      "name": "fclFormalName2Block",
+      "alias": "Formal name, part 2",
+      "type": "esriFieldTypeInteger",
+      "nullable": true,
+      "length": null,
+      "references_table": null,
+      "is_primary_id": false
+    }
+  }
+}

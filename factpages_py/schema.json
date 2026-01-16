@@ -1,0 +1,356 @@
+{
+  "_comment": "Table metadata for knowledge graph construction. Column renames are applied on export, not stored in database.",
+  "_version": "1.0.0",
+
+  "entities": {
+    "field": {
+      "table_id": 7100,
+      "node_type": "Field",
+      "id_field": "fldNpdidField",
+      "name_field": "fldName",
+      "has_geometry": true,
+      "rename": {
+        "fldNpdidField": "npdid_field",
+        "fldName": "field_name",
+        "fldStatus": "status",
+        "fldHcType": "hc_type",
+        "fldMainArea": "main_area",
+        "fldOperatorCompanyName": "operator"
+      },
+      "foreign_keys": {}
+    },
+
+    "discovery": {
+      "table_id": 7000,
+      "node_type": "Discovery",
+      "id_field": "dscNpdidDiscovery",
+      "name_field": "dscName",
+      "has_geometry": true,
+      "rename": {
+        "dscNpdidDiscovery": "npdid_discovery",
+        "dscName": "discovery_name",
+        "dscCurrentActivityStatus": "status",
+        "dscHcType": "hc_type",
+        "dscMainArea": "main_area",
+        "dscDiscoveryYear": "discovery_year",
+        "fldNpdidField": "npdid_field"
+      },
+      "foreign_keys": {
+        "fldNpdidField": {
+          "target_table": "field",
+          "target_field": "fldNpdidField",
+          "connection_name": "DEVELOPED_AS",
+          "description": "Discovery developed into field"
+        }
+      }
+    },
+
+    "wellbore": {
+      "table_id": 5000,
+      "node_type": "Wellbore",
+      "id_field": "wlbNpdidWellbore",
+      "name_field": "wlbWellboreName",
+      "has_geometry": true,
+      "rename": {
+        "wlbNpdidWellbore": "npdid_wellbore",
+        "wlbWellboreName": "wellbore_name",
+        "wlbStatus": "status",
+        "wlbPurpose": "purpose",
+        "wlbContent": "content",
+        "wlbMainArea": "main_area",
+        "wlbTotalDepth": "total_depth",
+        "fldNpdidField": "npdid_field",
+        "dscNpdidDiscovery": "npdid_discovery",
+        "prlNpdidLicence": "npdid_licence"
+      },
+      "foreign_keys": {
+        "fldNpdidField": {
+          "target_table": "field",
+          "target_field": "fldNpdidField",
+          "connection_name": "DRILLED_ON",
+          "description": "Wellbore drilled on field"
+        },
+        "dscNpdidDiscovery": {
+          "target_table": "discovery",
+          "target_field": "dscNpdidDiscovery",
+          "connection_name": "TESTED_ON",
+          "description": "Wellbore tested discovery"
+        },
+        "prlNpdidLicence": {
+          "target_table": "licence",
+          "target_field": "prlNpdidLicence",
+          "connection_name": "LICENSED_BY",
+          "description": "Wellbore drilled under licence"
+        }
+      }
+    },
+
+    "facility": {
+      "table_id": 6000,
+      "node_type": "Facility",
+      "id_field": "fclNpdidFacility",
+      "name_field": "fclName",
+      "has_geometry": true,
+      "rename": {
+        "fclNpdidFacility": "npdid_facility",
+        "fclName": "facility_name",
+        "fclKind": "kind",
+        "fclPhase": "phase",
+        "fclStatus": "status",
+        "fldNpdidField": "npdid_field"
+      },
+      "foreign_keys": {
+        "fldNpdidField": {
+          "target_table": "field",
+          "target_field": "fldNpdidField",
+          "connection_name": "SERVES_FIELD",
+          "description": "Facility serves field"
+        }
+      }
+    },
+
+    "pipeline": {
+      "table_id": 6100,
+      "node_type": "Pipeline",
+      "id_field": "pipNpdidPipeline",
+      "name_field": "pipName",
+      "has_geometry": true,
+      "rename": {
+        "pipNpdidPipeline": "npdid_pipeline",
+        "pipName": "pipeline_name",
+        "pipMedium": "medium",
+        "pipCurrentPhase": "phase"
+      },
+      "foreign_keys": {}
+    },
+
+    "licence": {
+      "table_id": 3000,
+      "node_type": "Licence",
+      "id_field": "prlNpdidLicence",
+      "name_field": "prlName",
+      "has_geometry": true,
+      "rename": {
+        "prlNpdidLicence": "npdid_licence",
+        "prlName": "licence_name",
+        "prlStatus": "status",
+        "prlMainArea": "main_area",
+        "prlCurrentPhase": "phase"
+      },
+      "foreign_keys": {}
+    },
+
+    "company": {
+      "table_id": 1200,
+      "node_type": "Company",
+      "id_field": "cmpNpdidCompany",
+      "name_field": "cmpLongName",
+      "has_geometry": false,
+      "rename": {
+        "cmpNpdidCompany": "npdid_company",
+        "cmpLongName": "company_name",
+        "cmpShortName": "short_name",
+        "cmpOrgNumberBrReg": "org_number"
+      },
+      "foreign_keys": {}
+    },
+
+    "play": {
+      "table_id": 7800,
+      "node_type": "Play",
+      "id_field": "plyNpdidPlay",
+      "name_field": "plyName",
+      "has_geometry": true,
+      "rename": {
+        "plyNpdidPlay": "npdid_play",
+        "plyName": "play_name"
+      },
+      "foreign_keys": {}
+    }
+  },
+
+  "connection_tables": {
+    "field_licensee": {
+      "table_id": 7105,
+      "description": "Field ownership by companies",
+      "source": {
+        "table": "field",
+        "field": "fldNpdidField"
+      },
+      "target": {
+        "table": "company",
+        "field": "cmpNpdidCompany"
+      },
+      "connection_name": "OWNED_BY",
+      "properties": {
+        "share": "fldLicenseeInterest",
+        "is_operator": "fldLicenseeIsOperator"
+      }
+    },
+
+    "field_operator": {
+      "table_id": 7106,
+      "description": "Field operator history",
+      "source": {
+        "table": "field",
+        "field": "fldNpdidField"
+      },
+      "target": {
+        "table": "company",
+        "field": "cmpNpdidCompany"
+      },
+      "connection_name": "OPERATED_BY",
+      "properties": {
+        "date_from": "fldOperatorDateFrom",
+        "date_to": "fldOperatorDateTo"
+      }
+    },
+
+    "licence_licensee_history": {
+      "table_id": 3007,
+      "description": "Licence ownership by companies",
+      "source": {
+        "table": "licence",
+        "field": "prlNpdidLicence"
+      },
+      "target": {
+        "table": "company",
+        "field": "cmpNpdidCompany"
+      },
+      "connection_name": "LICENSED_TO",
+      "properties": {
+        "share": "prlLicenseeInterest",
+        "date_from": "prlLicenseeDateFrom",
+        "date_to": "prlLicenseeDateValidTo"
+      }
+    },
+
+    "licence_operator_history": {
+      "table_id": 3008,
+      "description": "Licence operator history",
+      "source": {
+        "table": "licence",
+        "field": "prlNpdidLicence"
+      },
+      "target": {
+        "table": "company",
+        "field": "cmpNpdidCompany"
+      },
+      "connection_name": "OPERATED_BY",
+      "properties": {
+        "date_from": "prlOperatorDateValidFrom",
+        "date_to": "prlOperatorDateValidTo"
+      }
+    },
+
+    "discovery_operator": {
+      "table_id": 7002,
+      "description": "Discovery operator history",
+      "source": {
+        "table": "discovery",
+        "field": "dscNpdidDiscovery"
+      },
+      "target": {
+        "table": "company",
+        "field": "cmpNpdidCompany"
+      },
+      "connection_name": "OPERATED_BY",
+      "properties": {
+        "date_from": "dscOperatorDateValidFrom",
+        "date_to": "dscOperatorDateValidTo"
+      }
+    },
+
+    "field_area": {
+      "table_id": 7102,
+      "description": "Field to licence area mapping",
+      "source": {
+        "table": "field",
+        "field": "fldNpdidField"
+      },
+      "target": {
+        "table": "licence",
+        "field": "prlNpdidLicence"
+      },
+      "connection_name": "LOCATED_IN",
+      "properties": {}
+    },
+
+    "discovery_area": {
+      "table_id": 7001,
+      "description": "Discovery to licence area mapping",
+      "source": {
+        "table": "discovery",
+        "field": "dscNpdidDiscovery"
+      },
+      "target": {
+        "table": "licence",
+        "field": "prlNpdidLicence"
+      },
+      "connection_name": "LOCATED_IN",
+      "properties": {}
+    },
+
+    "facility_field_transport": {
+      "table_id": 7114,
+      "description": "Transport connections between facilities and fields",
+      "source": {
+        "table": "facility",
+        "field": "fclNpdidFacility"
+      },
+      "target": {
+        "table": "field",
+        "field": "fldNpdidField"
+      },
+      "connection_name": "TRANSPORTS_FROM",
+      "properties": {}
+    },
+
+    "tuf_owner": {
+      "table_id": 6201,
+      "description": "TUF (Transport and Utility Facility) ownership",
+      "source": {
+        "table": "facility",
+        "field": "fclNpdidFacility"
+      },
+      "target": {
+        "table": "company",
+        "field": "cmpNpdidCompany"
+      },
+      "connection_name": "OWNED_BY",
+      "properties": {
+        "share": "tufOwnershipInterest",
+        "date_from": "tufOwnerDateValidFrom",
+        "date_to": "tufOwnerDateValidTo"
+      }
+    }
+  },
+
+  "id_patterns": {
+    "_comment": "Patterns for auto-detecting foreign keys in unknown tables",
+    "field": ["fldNpdidField", "npdid_field"],
+    "discovery": ["dscNpdidDiscovery", "npdid_discovery"],
+    "wellbore": ["wlbNpdidWellbore", "npdid_wellbore"],
+    "facility": ["fclNpdidFacility", "npdid_facility"],
+    "pipeline": ["pipNpdidPipeline", "npdid_pipeline"],
+    "licence": ["prlNpdidLicence", "npdid_licence"],
+    "company": ["cmpNpdidCompany", "npdid_company"],
+    "play": ["plyNpdidPlay", "npdid_play"]
+  },
+
+  "connection_names": {
+    "_comment": "Default names for auto-detected connections. Format: 'source:target' -> {name, reverse}. Convention: WORD_WORD",
+    "wellbore:field": {"name": "DRILLED_ON", "reverse": "HAS_WELLS"},
+    "wellbore:discovery": {"name": "TESTED_ON", "reverse": "TESTED_BY"},
+    "wellbore:licence": {"name": "LICENSED_UNDER", "reverse": "HAS_WELLS"},
+    "wellbore:company": {"name": "DRILLED_BY", "reverse": "HAS_DRILLED"},
+    "wellbore:facility": {"name": "USED_FACILITY", "reverse": "USED_BY"},
+    "discovery:field": {"name": "DEVELOPED_AS", "reverse": "DEVELOPED_FROM"},
+    "discovery:company": {"name": "OPERATED_BY", "reverse": "HAS_OPERATED"},
+    "facility:field": {"name": "SERVES_FIELD", "reverse": "SERVED_BY"},
+    "facility:company": {"name": "OPERATED_BY", "reverse": "HAS_OPERATED"},
+    "field:company": {"name": "OWNED_BY", "reverse": "HAS_OWNERSHIP"},
+    "field:wellbore": {"name": "DISCOVERY_WELL", "reverse": "DISCOVERED_BY"},
+    "licence:company": {"name": "LICENSED_TO", "reverse": "LICENSEE_OF"}
+  }
+}
