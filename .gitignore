@@ -4,6 +4,7 @@ factpages_data/
 docs/
 examples/
 tests/
+pyexample/
 
 # Python
 __pycache__/

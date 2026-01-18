@@ -322,7 +322,6 @@ class SyncEngine:
         self,
         dataset: str,
         include_geometry: bool = True,
-        progress: bool = True
     ) -> tuple[bool, any, str]:
         """
         Download a dataset with retry logic.
@@ -337,7 +336,6 @@ class SyncEngine:
                 df = self.api.download(
                     dataset,
                     include_geometry=include_geometry,
-                    progress=progress
                 )
                 return True, df, ""
 
@@ -346,9 +344,6 @@ class SyncEngine:
 
                 if attempt < self.retry.max_retries:
                     delay = self.retry.get_delay(attempt)
-                    if progress:
-                        print(f"  Retry {attempt + 1}/{self.retry.max_retries} "
-                              f"in {delay:.1f}s: {e}")
                     time.sleep(delay)
 
         return False, None, last_error or "Unknown error"
@@ -456,15 +451,12 @@ class SyncEngine:
         # Check if sync is needed
         if not force and not strategy.should_sync(dataset, self.db, self.api):
             result["reason"] = "skipped (up to date)"
-            if progress:
-                print(f"  {dataset}: skipped (up to date)")
             return result
 
         # Download with retry
         success, df, error = self._download_with_retry(
             dataset,
             include_geometry=include_geometry,
-            progress=progress
         )
 
         if success and df is not None:
@@ -544,7 +536,8 @@ class SyncEngine:
         strategy: Optional[SyncStrategy] = None,
         force: bool = False,
         progress: bool = True,
-        track_state: bool = True
+        track_state: bool = True,
+        workers: int = 4
     ) -> dict:
         """
         Sync all datasets across all categories.
@@ -554,10 +547,14 @@ class SyncEngine:
             force: Force sync regardless of strategy
             progress: Show progress messages
             track_state: Enable state tracking for resume capability
+            workers: Number of parallel download threads (default: 4)
 
         Returns:
             Dict mapping category to list of sync results
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from tqdm import tqdm
+
         strategy = strategy or IfMissing()
 
         # Collect all datasets
@@ -569,42 +566,65 @@ class SyncEngine:
         if track_state:
             self.state.start_sync([d[1] for d in all_datasets])
 
-        if progress:
-            print("\n" + "=" * 60)
-            print("FULL DATABASE SYNC")
-            print("=" * 60)
-
         all_results = {cat: [] for cat in FILE_MAPPING}
         start_time = datetime.now()
 
+        # Thread-safe lock for updating results and state
+        import threading
+        lock = threading.Lock()
+
+        def sync_one(category: str, dataset: str) -> tuple[str, str, dict]:
+            include_geometry = (category == "geometries")
+            result = self.sync_dataset(
+                dataset,
+                strategy=strategy,
+                force=force,
+                include_geometry=include_geometry,
+                progress=False
+            )
+            return category, dataset, result
+
+        pbar = tqdm(
+            total=len(all_datasets),
+            desc="Syncing all",
+            unit="table",
+            disable=not progress
+        )
+
         try:
-            for category, dataset in all_datasets:
-                include_geometry = (category == "geometries")
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(sync_one, cat, ds): (cat, ds)
+                    for cat, ds in all_datasets
+                }
 
-                result = self.sync_dataset(
-                    dataset,
-                    strategy=strategy,
-                    force=force,
-                    include_geometry=include_geometry,
-                    progress=progress
-                )
-                all_results[category].append(result)
+                for future in as_completed(futures):
+                    category, dataset, result = future.result()
 
-                if track_state:
-                    if result["synced"]:
-                        self.state.mark_completed(dataset)
-                    elif "error" in (result.get("reason") or ""):
-                        self.state.mark_failed(dataset, result["reason"])
-                    else:
-                        self.state.mark_completed(dataset)  # Skipped counts as done
+                    with lock:
+                        all_results[category].append(result)
+
+                        if track_state:
+                            if result["synced"]:
+                                self.state.mark_completed(dataset)
+                            elif "error" in (result.get("reason") or ""):
+                                self.state.mark_failed(dataset, result["reason"])
+                            else:
+                                self.state.mark_completed(dataset)
+
+                    pbar.set_postfix_str(dataset)
+                    pbar.update(1)
 
             if track_state:
                 self.state.finish_sync()
 
         except KeyboardInterrupt:
+            pbar.close()
             if progress:
                 print("\n\nSync interrupted! Use resume_sync() to continue.")
             raise
+
+        pbar.close()
 
         if progress:
             duration = (datetime.now() - start_time).total_seconds()
@@ -613,7 +633,6 @@ class SyncEngine:
                 for r in cat_results if r["synced"]
             )
             total_datasets = sum(len(r) for r in all_results.values())
-            print(f"\n{'=' * 60}")
             print(f"Completed: {total_synced}/{total_datasets} datasets in {duration:.1f}s")
 
         return all_results
@@ -810,6 +829,616 @@ class SyncEngine:
             results.append(result)
 
         return results
+
+    # =========================================================================
+    # Data Quality & Maintenance
+    # =========================================================================
+
+    # =========================================================================
+    # Stats Caching
+    # =========================================================================
+
+    STATS_CACHE_FILE = "_stats_cache.json"
+    STATS_CACHE_MAX_AGE_DAYS = 3
+
+    def _get_cached_stats(self) -> Optional[dict]:
+        """Get cached stats if available and fresh."""
+        cache_path = self.db.data_dir / self.STATS_CACHE_FILE
+        if not cache_path.exists():
+            return None
+
+        try:
+            with open(cache_path, 'r') as f:
+                cached = json.load(f)
+
+            # Check age
+            fetched_at = datetime.fromisoformat(cached.get('fetched_at', '2000-01-01'))
+            age_days = (datetime.now() - fetched_at).days
+
+            if age_days >= self.STATS_CACHE_MAX_AGE_DAYS:
+                return None
+
+            cached['cache_age_days'] = age_days
+            return cached
+        except Exception:
+            return None
+
+    def _save_stats_cache(self, stats: dict) -> None:
+        """Save stats to cache."""
+        cache_path = self.db.data_dir / self.STATS_CACHE_FILE
+        stats['fetched_at'] = datetime.now().isoformat()
+        with open(cache_path, 'w') as f:
+            json.dump(stats, f, indent=2)
+
+    def _update_cached_stats_local_counts(self, cached: dict) -> dict:
+        """Update cached stats with current local counts (doesn't hit API)."""
+        for item in cached.get('all', []):
+            dataset = item['dataset']
+            if self.db.has_dataset(dataset):
+                item['local_count'] = self.db.get_record_count(dataset)
+                last_sync = self.db.get_last_sync(dataset)
+                if last_sync:
+                    item['age_days'] = (datetime.now() - last_sync).days
+                    item['last_sync'] = last_sync.isoformat()
+            else:
+                item['local_count'] = 0
+                item['age_days'] = None
+                item['last_sync'] = None
+
+            # Re-classify with updated local data
+            item['status'] = self._classify_dataset(
+                item['local_count'],
+                item.get('remote_count'),
+                item.get('age_days')
+            )
+
+        # Rebuild summary lists
+        cached['fresh'] = [r for r in cached['all'] if r['status'] == 'fresh']
+        cached['stale'] = [r for r in cached['all'] if r['status'] == 'stale']
+        cached['changed'] = [r for r in cached['all'] if r['status'] == 'changed']
+        cached['missing'] = [r for r in cached['all'] if r['status'] == 'missing']
+        cached['errors'] = [r for r in cached['all'] if r['status'] == 'error']
+
+        cached['fresh_count'] = len(cached['fresh'])
+        cached['stale_count'] = len(cached['stale'])
+        cached['changed_count'] = len(cached['changed'])
+        cached['missing_count'] = len(cached['missing'])
+        cached['error_count'] = len(cached['errors'])
+        cached['total_local_records'] = sum(r['local_count'] for r in cached['all'])
+
+        return cached
+
+    def stats(
+        self,
+        progress: bool = True,
+        workers: int = 4,
+        force_refresh: bool = False
+    ) -> dict:
+        """
+        Get statistics for all datasets from the API without downloading data.
+
+        Stats are cached for 3 days to minimize API calls. Use force_refresh=True
+        to fetch fresh stats regardless of cache age.
+
+        Args:
+            progress: Show progress messages
+            workers: Number of parallel API requests
+            force_refresh: Force refetch from API even if cache is fresh
+
+        Returns:
+            Dict with stats for all datasets
+
+        Example:
+            >>> stats = fp.stats()
+            >>> print(f"Total remote records: {stats['total_remote_records']:,}")
+            >>> print(f"Datasets with changes: {len(stats['changed'])}")
+        """
+        # Check cache first
+        if not force_refresh:
+            cached = self._get_cached_stats()
+            if cached:
+                # Update local counts without hitting API
+                cached = self._update_cached_stats_local_counts(cached)
+                if progress:
+                    print(f"Using cached stats ({cached.get('cache_age_days', 0)} days old)")
+                    self._print_stats_report(cached)
+                return cached
+
+        # Fetch fresh stats from API (deduplicate - some datasets appear in multiple categories)
+        all_datasets = list(dict.fromkeys(ds for cat in FILE_MAPPING.values() for ds in cat))
+
+        if progress:
+            print(f"Fetching stats for {len(all_datasets)} datasets from API...")
+
+        results = []
+
+        def get_counts(dataset: str) -> dict:
+            local_count = 0
+            last_sync = None
+            age_days = None
+
+            if self.db.has_dataset(dataset):
+                local_count = self.db.get_record_count(dataset)
+                last_sync = self.db.get_last_sync(dataset)
+                if last_sync:
+                    age_days = (datetime.now() - last_sync).days
+
+            try:
+                remote_count = self.api.get_count(dataset)
+            except Exception:
+                remote_count = None
+
+            return {
+                'dataset': dataset,
+                'local_count': local_count,
+                'remote_count': remote_count,
+                'last_sync': last_sync.isoformat() if last_sync else None,
+                'age_days': age_days,
+                'status': self._classify_dataset(local_count, remote_count, age_days),
+            }
+
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(get_counts, ds): ds for ds in all_datasets}
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        # Classify results
+        fresh = [r for r in results if r['status'] == 'fresh']
+        stale = [r for r in results if r['status'] == 'stale']
+        changed = [r for r in results if r['status'] == 'changed']
+        missing = [r for r in results if r['status'] == 'missing']
+        errors = [r for r in results if r['status'] == 'error']
+
+        total_local = sum(r['local_count'] for r in results)
+        total_remote = sum(r['remote_count'] or 0 for r in results)
+
+        report = {
+            'total_datasets': len(all_datasets),
+            'total_local_records': total_local,
+            'total_remote_records': total_remote,
+            'fresh': fresh,
+            'fresh_count': len(fresh),
+            'stale': stale,
+            'stale_count': len(stale),
+            'changed': changed,
+            'changed_count': len(changed),
+            'missing': missing,
+            'missing_count': len(missing),
+            'errors': errors,
+            'error_count': len(errors),
+            'all': sorted(results, key=lambda x: x['dataset']),
+        }
+
+        # Cache the results
+        self._save_stats_cache(report)
+
+        if progress:
+            self._print_stats_report(report)
+
+        return report
+
+    def _print_stats_report(self, report: dict) -> None:
+        """Print a stats report."""
+        print(f"\nDataset Statistics")
+        print("-" * 50)
+        print(f"Total datasets:    {report['total_datasets']}")
+        print(f"Local records:     {report['total_local_records']:,}")
+        print(f"Remote records:    {report['total_remote_records']:,}")
+        print()
+        print(f"Fresh (<30d):      {report['fresh_count']}")
+        print(f"Stale (>30d):      {report['stale_count']}")
+        print(f"Count changed:     {report['changed_count']}")
+        print(f"Missing:           {report['missing_count']}")
+        if report['error_count']:
+            print(f"API errors:        {report['error_count']}")
+
+        if report['changed']:
+            print(f"\nDatasets with count changes:")
+            for r in report['changed'][:5]:
+                print(f"  {r['dataset']}: {r['local_count']} -> {r['remote_count']}")
+            if len(report['changed']) > 5:
+                print(f"  ... and {len(report['changed']) - 5} more")
+
+    def _classify_dataset(self, local_count: int, remote_count: int, age_days: int) -> str:
+        """Classify a dataset's sync status."""
+        if remote_count is None:
+            return 'error'
+        if local_count == 0:
+            return 'missing'
+        if local_count != remote_count:
+            return 'changed'
+        if age_days is None or age_days >= 30:
+            return 'stale'
+        return 'fresh'
+
+    def check_quality(self, progress: bool = True) -> dict:
+        """
+        Check data quality and freshness across all datasets.
+
+        Returns a comprehensive report on:
+        - Dataset freshness (age in days)
+        - Missing datasets
+        - Stale datasets (> 30 days old)
+        - Overall health score
+
+        Args:
+            progress: Show progress messages
+
+        Returns:
+            Dict with quality report
+
+        Example:
+            >>> engine = SyncEngine(api, db)
+            >>> report = engine.check_quality()
+            >>> print(f"Health: {report['health_score']}%")
+            >>> for ds in report['stale'][:5]:
+            ...     print(f"  {ds['name']}: {ds['age_days']} days old")
+        """
+        all_datasets = [ds for cat in FILE_MAPPING.values() for ds in cat]
+        total = len(all_datasets)
+
+        if progress:
+            print(f"Checking quality of {total} datasets...")
+
+        fresh = []      # < 7 days
+        aging = []      # 7-30 days
+        stale = []      # > 30 days
+        missing = []    # Not downloaded
+
+        for dataset in all_datasets:
+            if not self.db.has_dataset(dataset):
+                missing.append(dataset)
+                continue
+
+            last_sync = self.db.get_last_sync(dataset)
+            if not last_sync:
+                missing.append(dataset)
+                continue
+
+            age = datetime.now() - last_sync
+            age_days = age.days
+
+            info = {
+                'name': dataset,
+                'last_sync': last_sync.isoformat(),
+                'age_days': age_days,
+                'record_count': self.db.get_record_count(dataset),
+            }
+
+            if age_days < 7:
+                fresh.append(info)
+            elif age_days < 30:
+                aging.append(info)
+            else:
+                stale.append(info)
+
+        # Sort stale by age (oldest first)
+        stale.sort(key=lambda x: x['age_days'], reverse=True)
+
+        # Calculate health score (0-100)
+        # Fresh = 100%, Aging = 50%, Stale = 25%, Missing = 0%
+        downloaded = len(fresh) + len(aging) + len(stale)
+        if total > 0:
+            score = (
+                len(fresh) * 100 +
+                len(aging) * 50 +
+                len(stale) * 25
+            ) / total
+        else:
+            score = 0
+
+        report = {
+            'total_datasets': total,
+            'downloaded': downloaded,
+            'missing': missing,
+            'missing_count': len(missing),
+            'fresh': fresh,
+            'fresh_count': len(fresh),
+            'aging': aging,
+            'aging_count': len(aging),
+            'stale': stale,
+            'stale_count': len(stale),
+            'health_score': round(score, 1),
+            'needs_refresh': len(stale) + len(missing),
+        }
+
+        if progress:
+            print(f"\nData Quality Report")
+            print("-" * 40)
+            print(f"Health Score:  {report['health_score']}%")
+            print(f"Fresh (<7d):   {len(fresh)}")
+            print(f"Aging (7-30d): {len(aging)}")
+            print(f"Stale (>30d):  {len(stale)}")
+            print(f"Missing:       {len(missing)}")
+
+            if stale:
+                print(f"\nOldest datasets:")
+                for ds in stale[:5]:
+                    print(f"  {ds['name']}: {ds['age_days']} days old")
+
+        return report
+
+    def refresh(
+        self,
+        max_age_days: int = 30,
+        limit_percent: float = 10.0,
+        progress: bool = True,
+        workers: int = 4
+    ) -> dict:
+        """
+        Refresh stale datasets with a limit on how many to download.
+
+        Uses cached stats (3-day cache) to minimize API calls.
+
+        Prioritization:
+        1. Datasets with changed record counts (eagerly fetch - likely have real changes)
+        2. Missing datasets (not downloaded yet)
+        3. Datasets older than max_age_days (enforce freshness)
+
+        The 10% limit ensures we don't overwhelm the API or take too long.
+
+        Args:
+            max_age_days: Consider datasets older than this stale (default: 30)
+            limit_percent: Maximum percentage of datasets to refresh (default: 10%)
+            progress: Show progress messages
+            workers: Number of parallel download threads
+
+        Returns:
+            Dict with refresh results
+
+        Example:
+            >>> # Refresh up to 10% of datasets older than 30 days
+            >>> results = fp.refresh()
+            >>>
+            >>> # More aggressive: refresh up to 25% of datasets
+            >>> results = fp.refresh(limit_percent=25)
+        """
+        # Use cached stats to avoid extra API calls
+        stats = self.stats(progress=False, workers=workers)
+
+        total = stats['total_datasets']
+        max_to_sync = max(1, int(total * limit_percent / 100))
+
+        # Build priority queue from cached stats
+        # Priority 1: count changed, Priority 2: missing, Priority 3: stale by age
+        count_changed = []
+        missing = []
+        stale = []
+
+        for item in stats['all']:
+            ds = item['dataset']
+            status = item['status']
+            age_days = item.get('age_days') or 9999
+            local = item['local_count']
+            remote = item.get('remote_count')
+
+            if status == 'changed':
+                count_changed.append((ds, age_days, local, remote))
+            elif status == 'missing':
+                missing.append((ds, age_days))
+            elif status == 'stale' or (age_days is not None and age_days >= max_age_days):
+                stale.append((ds, age_days))
+
+        # Sort each category by age (oldest first)
+        count_changed.sort(key=lambda x: x[1], reverse=True)
+        stale.sort(key=lambda x: x[1], reverse=True)
+
+        # Build priority queue: count_changed first, then missing, then stale
+        priority_queue = []
+        for ds, age, local, remote in count_changed:
+            priority_queue.append((ds, f'count: {local}->{remote}', 1))  # Priority 1
+        for ds, age in missing:
+            priority_queue.append((ds, 'missing', 2))  # Priority 2
+        for ds, age in stale:
+            priority_queue.append((ds, f'{age}d old', 3))  # Priority 3
+
+        # Apply limit
+        to_sync = [(ds, reason) for ds, reason, _ in priority_queue[:max_to_sync]]
+        total_needing_sync = len(priority_queue)
+
+        if progress:
+            print(f"\nRefresh Summary:")
+            print(f"  Count changed: {len(count_changed)} (priority)")
+            print(f"  Missing:       {len(missing)}")
+            print(f"  Stale (>{max_age_days}d): {len(stale)}")
+            print(f"  Total to sync: {total_needing_sync}, syncing {len(to_sync)} (limit: {limit_percent}%)")
+            if total_needing_sync > len(to_sync):
+                print(f"  Skipping {total_needing_sync - len(to_sync)} datasets (will sync in future refreshes)")
+
+        if not to_sync:
+            if progress:
+                print("All datasets are fresh!")
+            return {
+                'synced': [],
+                'failed': [],
+                'count_changed': 0,
+                'stale_remaining': 0,
+                'total_needing_sync': 0,
+            }
+
+        # Sync the selected datasets
+        datasets_to_sync = [ds for ds, _ in to_sync]
+        results = self.sync_parallel(datasets_to_sync, max_workers=workers, strategy=AlwaysSync(), progress=progress)
+
+        synced = [r for r in results if r.get('synced')]
+        failed = [r for r in results if not r.get('synced')]
+
+        return {
+            'synced': [r['dataset'] for r in synced],
+            'synced_count': len(synced),
+            'failed': [r['dataset'] for r in failed],
+            'failed_count': len(failed),
+            'count_changed_found': len(count_changed),
+            'stale_remaining': total_needing_sync - len(to_sync),
+            'total_needing_sync': total_needing_sync,
+            'limit_applied': total_needing_sync > len(to_sync),
+        }
+
+    def fix(
+        self,
+        max_age_days: int = 30,
+        include_missing: bool = True,
+        progress: bool = True,
+        workers: int = 4
+    ) -> dict:
+        """
+        Thorough fix: refresh ALL stale, changed, and missing datasets without limits.
+
+        Uses cached stats (3-day cache) to minimize API calls.
+
+        Use this when you need a complete data refresh, like after a long
+        period of inactivity or when data quality is critical.
+
+        Syncs:
+        - Datasets with changed record counts (data has changed)
+        - Datasets older than max_age_days (enforce freshness)
+        - Missing datasets (if include_missing=True)
+
+        Args:
+            max_age_days: Consider datasets older than this stale (default: 30)
+            include_missing: Also download missing datasets (default: True)
+            progress: Show progress messages
+            workers: Number of parallel download threads
+
+        Returns:
+            Dict with fix results
+
+        Example:
+            >>> # Fix all stale and missing data
+            >>> results = fp.fix()
+            >>>
+            >>> # Fix only stale data (don't download new datasets)
+            >>> results = fp.fix(include_missing=False)
+        """
+        # Use cached stats to avoid extra API calls
+        stats = self.stats(progress=False, workers=workers)
+
+        count_changed = []
+        stale = []
+        missing = []
+
+        for item in stats['all']:
+            ds = item['dataset']
+            status = item['status']
+            age_days = item.get('age_days') or 9999
+            local = item['local_count']
+            remote = item.get('remote_count')
+
+            if status == 'changed':
+                count_changed.append((ds, local, remote))
+            elif status == 'missing':
+                if include_missing:
+                    missing.append(ds)
+            elif status == 'stale' or (age_days is not None and age_days >= max_age_days):
+                stale.append((ds, age_days))
+
+        # Combine all (no limit for fix)
+        to_sync = []
+        to_sync.extend((ds, f'count: {local}->{remote}') for ds, local, remote in count_changed)
+        to_sync.extend((ds, 'missing') for ds in missing)
+        to_sync.extend((ds, f'{age}d old') for ds, age in stale)
+
+        if progress:
+            print(f"\nFix Summary:")
+            print(f"  Count changed: {len(count_changed)} (data updated)")
+            print(f"  Missing:       {len(missing)}")
+            print(f"  Stale (>{max_age_days}d): {len(stale)}")
+            print(f"  Total to sync: {len(to_sync)}")
+            print("(No limit applied - this may take a while)")
+
+        if not to_sync:
+            if progress:
+                print("All datasets are fresh and complete!")
+            return {
+                'synced': [],
+                'failed': [],
+                'count_changed_found': 0,
+                'total_fixed': 0,
+            }
+
+        # Sync all datasets
+        datasets_to_sync = [ds for ds, _ in to_sync]
+        results = self.sync_parallel(datasets_to_sync, max_workers=workers, strategy=AlwaysSync(), progress=progress)
+
+        synced = [r for r in results if r.get('synced')]
+        failed = [r for r in results if not r.get('synced')]
+
+        return {
+            'synced': [r['dataset'] for r in synced],
+            'synced_count': len(synced),
+            'failed': [{'dataset': r['dataset'], 'reason': r.get('reason')} for r in failed],
+            'failed_count': len(failed),
+            'count_changed_found': len(count_changed),
+            'total_fixed': len(synced),
+        }
+
+    def fetch_all(
+        self,
+        progress: bool = True,
+        workers: int = 4
+    ) -> dict:
+        """
+        Fetch the entire database by downloading all missing datasets.
+
+        This method:
+        1. Force refreshes stats from the API (ignores cache)
+        2. Downloads all datasets that don't exist locally
+
+        Use this for initial setup or to ensure you have all available data.
+
+        Args:
+            progress: Show progress messages
+            workers: Number of parallel download threads
+
+        Returns:
+            Dict with fetch results
+
+        Example:
+            >>> # Download entire database
+            >>> results = fp.fetch_all()
+            >>> print(f"Downloaded {results['synced_count']} datasets")
+        """
+        # Force refresh stats to get latest from API
+        stats = self.stats(progress=progress, workers=workers, force_refresh=True)
+
+        # Find all missing datasets
+        missing = [item['dataset'] for item in stats['all'] if item['status'] == 'missing']
+
+        if progress:
+            print(f"\nFetch All Summary:")
+            print(f"  Total datasets:  {stats['total_datasets']}")
+            print(f"  Already have:    {stats['total_datasets'] - len(missing)}")
+            print(f"  Missing:         {len(missing)}")
+
+        if not missing:
+            if progress:
+                print("\nDatabase is complete - all datasets already downloaded!")
+            return {
+                'synced': [],
+                'synced_count': 0,
+                'failed': [],
+                'failed_count': 0,
+                'already_had': stats['total_datasets'],
+                'total_datasets': stats['total_datasets'],
+            }
+
+        if progress:
+            print(f"\nDownloading {len(missing)} missing datasets...")
+
+        # Download all missing datasets
+        results = self.sync_parallel(missing, max_workers=workers, strategy=AlwaysSync(), progress=progress)
+
+        synced = [r for r in results if r.get('synced')]
+        failed = [r for r in results if not r.get('synced')]
+
+        return {
+            'synced': [r['dataset'] for r in synced],
+            'synced_count': len(synced),
+            'failed': [{'dataset': r['dataset'], 'reason': r.get('reason')} for r in failed],
+            'failed_count': len(failed),
+            'already_had': stats['total_datasets'] - len(missing),
+            'total_datasets': stats['total_datasets'],
+        }
 
     # =========================================================================
     # Legacy Methods (backwards compatibility)

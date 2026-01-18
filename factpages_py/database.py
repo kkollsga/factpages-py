@@ -1,24 +1,22 @@
 """
 Local Database Management
 
-High-performance local storage for Factpages data using Parquet format.
+High-performance local storage for Factpages data using SQLite.
 
 Storage structure:
     factpages_data/
-    ├── _metadata.json       # Sync timestamps, record counts
-    ├── discovery.parquet    # Each dataset as separate Parquet file
-    ├── field.parquet
-    ├── wellbore.parquet
-    └── ...
+    ├── factpages.db         # SQLite database with all tables
+    └── sideloaded.db        # Sideloaded data (separate file)
 
-Parquet provides:
-- Columnar storage optimized for analytical queries
-- Excellent compression (typically 5-10x smaller than JSON)
-- Type preservation (dates, integers, floats)
-- Fast I/O with memory mapping
+SQLite provides:
+- Single file storage (no file clutter)
+- Multiple tables with different schemas
+- Fast queries with indexing
+- Type preservation
+- Standard Python library support
 """
 
-import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Union
@@ -81,13 +79,13 @@ def get_category_for_dataset(dataset: str) -> str:
 
 class Database:
     """
-    High-performance local database using Parquet storage.
+    High-performance local database using SQLite storage.
 
-    Each dataset is stored as a separate Parquet file for:
-    - Fast loading of individual datasets
-    - Efficient compression
-    - Type preservation
-    - Memory-mapped reading
+    All datasets are stored in a single SQLite database file for:
+    - Clean single-file storage
+    - Fast queries with SQL
+    - Multiple tables with different schemas
+    - Built-in Python support
 
     Example:
         >>> db = Database()  # Uses ./factpages_data by default
@@ -100,108 +98,73 @@ class Database:
         >>> db.print_status()
     """
 
-    METADATA_FILE = "_metadata.json"
-    SIDELOAD_PREFIX = "sideload_"  # Prefix for sideloaded datasets
-    SIDELOAD_DIR = "sideloaded"    # Subdirectory for sideloaded data
+    DB_FILE = "factpages.db"
+    SIDELOAD_DB_FILE = "sideloaded.db"
+    SIDELOAD_PREFIX = "sideload_"
 
     def __init__(self, data_dir: Union[str, Path] = "./factpages_data"):
         """
         Initialize the database.
 
         Args:
-            data_dir: Directory to store the Parquet files (default: ./factpages_data)
+            data_dir: Directory to store the database files (default: ./factpages_data)
 
         Storage structure:
             factpages_data/
-            ├── _metadata.json           # API data metadata
-            ├── field.parquet            # API data
-            ├── discovery.parquet
-            └── sideloaded/              # Sideloaded data (separate!)
-                ├── _metadata.json       # Sideloaded data metadata
-                ├── projects.parquet
-                └── tasks.parquet
+            ├── factpages.db      # Main database (all API tables)
+            └── sideloaded.db     # Sideloaded data
         """
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
-        # Create sideloaded subdirectory
-        self.sideload_dir = self.data_dir / self.SIDELOAD_DIR
-        self.sideload_dir.mkdir(parents=True, exist_ok=True)
+        self.db_path = self.data_dir / self.DB_FILE
+        self.sideload_db_path = self.data_dir / self.SIDELOAD_DB_FILE
 
         # In-memory cache for frequently accessed data
         self._cache: dict[str, pd.DataFrame] = {}
-        self._metadata: Optional[dict] = None
-        self._sideload_metadata: Optional[dict] = None
 
-    # =========================================================================
-    # Metadata Management
-    # =========================================================================
+        # Initialize databases
+        self._init_db(self.db_path)
+        self._init_db(self.sideload_db_path)
+
+    def _init_db(self, db_path: Path) -> None:
+        """Initialize database with metadata table."""
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS _metadata (
+                    dataset TEXT PRIMARY KEY,
+                    last_sync TEXT,
+                    record_count INTEGER,
+                    source TEXT,
+                    checksum TEXT,
+                    category TEXT
+                )
+            """)
+            conn.commit()
+
+    def _get_db_path(self, dataset: str) -> Path:
+        """Get the database path for a dataset."""
+        if dataset.startswith(self.SIDELOAD_PREFIX):
+            return self.sideload_db_path
+        return self.db_path
 
     def _is_sideloaded(self, dataset: str) -> bool:
         """Check if a dataset name indicates sideloaded data."""
         return dataset.startswith(self.SIDELOAD_PREFIX)
 
-    def _metadata_path(self, sideloaded: bool = False) -> Path:
-        if sideloaded:
-            return self.sideload_dir / self.METADATA_FILE
-        return self.data_dir / self.METADATA_FILE
-
-    def _load_metadata(self, sideloaded: bool = False) -> dict:
-        """Load metadata from disk."""
-        if sideloaded:
-            if self._sideload_metadata is not None:
-                return self._sideload_metadata
-            cache_attr = '_sideload_metadata'
-        else:
-            if self._metadata is not None:
-                return self._metadata
-            cache_attr = '_metadata'
-
-        path = self._metadata_path(sideloaded)
-        if path.exists():
-            with open(path, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
-        else:
-            metadata = {
-                "version": "2.0",
-                "format": "parquet",
-                "type": "sideloaded" if sideloaded else "api",
-                "created": datetime.now().isoformat(),
-                "datasets": {},
-            }
-
-        setattr(self, cache_attr, metadata)
-        return metadata
-
-    def _save_metadata(self, sideloaded: bool = False) -> None:
-        """Save metadata to disk."""
-        if sideloaded:
-            metadata = self._sideload_metadata
-        else:
-            metadata = self._metadata
-
-        if metadata is None:
-            return
-
-        metadata["last_modified"] = datetime.now().isoformat()
-
-        with open(self._metadata_path(sideloaded), 'w', encoding='utf-8') as f:
-            json.dump(metadata, f, indent=2)
-
     # =========================================================================
-    # File Operations
+    # Core Operations
     # =========================================================================
-
-    def _dataset_path(self, dataset: str) -> Path:
-        """Get the Parquet file path for a dataset."""
-        if self._is_sideloaded(dataset):
-            # Sideloaded data goes in subdirectory
-            return self.sideload_dir / f"{dataset}.parquet"
-        return self.data_dir / f"{dataset}.parquet"
 
     def has_dataset(self, dataset: str) -> bool:
         """Check if a dataset exists locally."""
-        return self._dataset_path(dataset).exists()
+        db_path = self._get_db_path(dataset)
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (dataset,)
+            )
+            return cursor.fetchone() is not None
 
     def get(self, dataset: str) -> pd.DataFrame:
         """
@@ -222,15 +185,15 @@ class Database:
         if dataset in self._cache:
             return self._cache[dataset]
 
-        path = self._dataset_path(dataset)
-        if not path.exists():
+        if not self.has_dataset(dataset):
             raise KeyError(
                 f"Dataset '{dataset}' not found locally. "
                 f"Use sync() to download it first."
             )
 
-        # Load from Parquet
-        df = pd.read_parquet(path)
+        db_path = self._get_db_path(dataset)
+        with sqlite3.connect(db_path) as conn:
+            df = pd.read_sql_query(f'SELECT * FROM "{dataset}"', conn)
 
         # Cache if not too large (< 100MB estimated)
         if len(df) < 500_000:
@@ -260,28 +223,27 @@ class Database:
             df: DataFrame with records
             source: Data source identifier
             checksum: Optional checksum for change detection
-
-        Note:
-            Datasets prefixed with 'sideload_' are stored in a separate
-            subdirectory to prevent mixing with API data.
         """
-        is_sideloaded = self._is_sideloaded(dataset)
-        path = self._dataset_path(dataset)
+        db_path = self._get_db_path(dataset)
 
-        # Save as Parquet with compression
-        df.to_parquet(path, index=False, compression='snappy')
+        with sqlite3.connect(db_path) as conn:
+            # Store the data (replace if exists)
+            df.to_sql(dataset, conn, if_exists='replace', index=False)
 
-        # Update metadata (use correct metadata file based on data type)
-        metadata = self._load_metadata(sideloaded=is_sideloaded)
-        metadata["datasets"][dataset] = {
-            "last_sync": datetime.now().isoformat(),
-            "record_count": len(df),
-            "source": source,
-            "checksum": checksum,
-            "category": "sideloaded" if is_sideloaded else get_category_for_dataset(dataset),
-            "file_size_bytes": path.stat().st_size,
-        }
-        self._save_metadata(sideloaded=is_sideloaded)
+            # Update metadata
+            conn.execute("""
+                INSERT OR REPLACE INTO _metadata
+                (dataset, last_sync, record_count, source, checksum, category)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                dataset,
+                datetime.now().isoformat(),
+                len(df),
+                source,
+                checksum,
+                "sideloaded" if self._is_sideloaded(dataset) else get_category_for_dataset(dataset)
+            ))
+            conn.commit()
 
         # Update cache
         if len(df) < 500_000:
@@ -294,29 +256,22 @@ class Database:
         Returns:
             True if deleted, False if not found
         """
-        is_sideloaded = self._is_sideloaded(dataset)
-        path = self._dataset_path(dataset)
+        if not self.has_dataset(dataset):
+            return False
 
-        if path.exists():
-            path.unlink()
+        db_path = self._get_db_path(dataset)
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(f'DROP TABLE IF EXISTS "{dataset}"')
+            conn.execute("DELETE FROM _metadata WHERE dataset = ?", (dataset,))
+            conn.commit()
 
-            # Update metadata (use correct metadata file)
-            metadata = self._load_metadata(sideloaded=is_sideloaded)
-            if dataset in metadata.get("datasets", {}):
-                del metadata["datasets"][dataset]
-                self._save_metadata(sideloaded=is_sideloaded)
-
-            # Clear from cache
-            self._cache.pop(dataset, None)
-            return True
-
-        return False
+        # Clear from cache
+        self._cache.pop(dataset, None)
+        return True
 
     def clear_cache(self) -> None:
         """Clear the in-memory cache."""
         self._cache.clear()
-        self._metadata = None
-        self._sideload_metadata = None
 
     # =========================================================================
     # Sync Tracking
@@ -324,9 +279,17 @@ class Database:
 
     def get_sync_info(self, dataset: str) -> Optional[dict]:
         """Get sync metadata for a dataset."""
-        is_sideloaded = self._is_sideloaded(dataset)
-        metadata = self._load_metadata(sideloaded=is_sideloaded)
-        return metadata.get("datasets", {}).get(dataset)
+        db_path = self._get_db_path(dataset)
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(
+                "SELECT * FROM _metadata WHERE dataset = ?",
+                (dataset,)
+            )
+            row = cursor.fetchone()
+            if row:
+                cols = [d[0] for d in cursor.description]
+                return dict(zip(cols, row))
+        return None
 
     def get_last_sync(self, dataset: str) -> Optional[datetime]:
         """Get the last sync time for a dataset."""
@@ -362,15 +325,29 @@ class Database:
     # Status & Reporting
     # =========================================================================
 
+    def _get_all_metadata(self, db_path: Path) -> dict:
+        """Get all metadata from a database."""
+        result = {}
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute("SELECT * FROM _metadata")
+            cols = [d[0] for d in cursor.description]
+            for row in cursor:
+                info = dict(zip(cols, row))
+                result[info['dataset']] = info
+        return result
+
+    def _get_db_size(self, db_path: Path) -> int:
+        """Get database file size in bytes."""
+        if db_path.exists():
+            return db_path.stat().st_size
+        return 0
+
     def status(self, include_sideloaded: bool = True) -> dict:
         """Get status of all datasets."""
-        metadata = self._load_metadata()
-        datasets_info = metadata.get("datasets", {}).copy()
+        datasets_info = self._get_all_metadata(self.db_path)
 
-        # Also include sideloaded data if requested
-        if include_sideloaded:
-            sideload_metadata = self._load_metadata(sideloaded=True)
-            datasets_info.update(sideload_metadata.get("datasets", {}))
+        if include_sideloaded and self.sideload_db_path.exists():
+            datasets_info.update(self._get_all_metadata(self.sideload_db_path))
 
         # Group by category
         by_category: dict[str, list] = {
@@ -381,24 +358,25 @@ class Database:
             "sideloaded": [],
         }
 
-        total_size = 0
         for name, info in datasets_info.items():
             category = info.get("category", "supporting")
-            size = info.get("file_size_bytes", 0)
-            total_size += size
-
             by_category.setdefault(category, []).append({
                 "name": name,
                 "record_count": info.get("record_count", 0),
                 "last_sync": info.get("last_sync"),
-                "size_mb": size / (1024 * 1024),
             })
+
+        main_size = self._get_db_size(self.db_path)
+        sideload_size = self._get_db_size(self.sideload_db_path)
 
         return {
             "data_dir": str(self.data_dir.absolute()),
-            "sideload_dir": str(self.sideload_dir.absolute()),
+            "db_file": str(self.db_path),
+            "sideload_db_file": str(self.sideload_db_path),
             "total_datasets": len(datasets_info),
-            "total_size_mb": total_size / (1024 * 1024),
+            "total_size_mb": (main_size + sideload_size) / (1024 * 1024),
+            "main_db_size_mb": main_size / (1024 * 1024),
+            "sideload_db_size_mb": sideload_size / (1024 * 1024),
             "by_category": by_category,
         }
 
@@ -409,39 +387,54 @@ class Database:
         print("\n" + "=" * 60)
         print("LOCAL DATABASE STATUS")
         print("=" * 60)
-        print(f"API Data:       {status['data_dir']}")
-        print(f"Sideloaded:     {status['sideload_dir']}")
-        print(f"Format:         Parquet (compressed)")
+        print(f"Database:   {status['db_file']}")
+        print(f"Size:       {status['main_db_size_mb']:.2f} MB")
+        if status['sideload_db_size_mb'] > 0:
+            print(f"Sideloaded: {status['sideload_db_file']}")
+            print(f"            {status['sideload_db_size_mb']:.2f} MB")
         print()
 
         for category in ["entities", "geometries", "production", "supporting", "sideloaded"]:
             datasets = status["by_category"].get(category, [])
             if datasets:
-                print(f"{category.upper()} ({len(datasets)} datasets)")
+                print(f"{category.upper()} ({len(datasets)} tables)")
                 for ds in sorted(datasets, key=lambda x: x["name"]):
                     count = ds["record_count"]
-                    size = ds["size_mb"]
-                    print(f"  {ds['name']:<35} {count:>8,} records  {size:>6.2f} MB")
+                    print(f"  {ds['name']:<40} {count:>8,} records")
                 print()
 
         print("-" * 60)
-        print(f"Total: {status['total_datasets']} datasets, {status['total_size_mb']:.2f} MB")
+        print(f"Total: {status['total_datasets']} tables, {status['total_size_mb']:.2f} MB")
 
     def list_datasets(self, include_sideloaded: bool = True) -> list[str]:
         """List all datasets available locally."""
-        metadata = self._load_metadata()
-        datasets = list(metadata.get("datasets", {}).keys())
+        datasets = []
 
-        if include_sideloaded:
-            sideload_metadata = self._load_metadata(sideloaded=True)
-            datasets.extend(sideload_metadata.get("datasets", {}).keys())
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name != '_metadata'"
+            )
+            datasets.extend(row[0] for row in cursor)
+
+        if include_sideloaded and self.sideload_db_path.exists():
+            with sqlite3.connect(self.sideload_db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name != '_metadata'"
+                )
+                datasets.extend(row[0] for row in cursor)
 
         return sorted(datasets)
 
     def list_sideloaded_datasets(self) -> list[str]:
         """List only sideloaded datasets."""
-        metadata = self._load_metadata(sideloaded=True)
-        return sorted(metadata.get("datasets", {}).keys())
+        if not self.sideload_db_path.exists():
+            return []
+
+        with sqlite3.connect(self.sideload_db_path) as conn:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name != '_metadata'"
+            )
+            return sorted(row[0] for row in cursor)
 
     # =========================================================================
     # Bulk Operations
@@ -467,36 +460,25 @@ class Database:
 
         return result
 
-    def export_to_json(self, output_dir: Union[str, Path]) -> None:
+    def export_to_parquet(self, output_dir: Union[str, Path], datasets: Optional[list[str]] = None) -> None:
         """
-        Export all datasets to JSON format (for portability).
+        Export datasets to Parquet format.
 
         Args:
             output_dir: Output directory
+            datasets: List of datasets to export (default: all)
         """
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        for dataset in self.list_datasets():
-            df = self.get(dataset)
-            output_path = output_dir / f"{dataset}.json"
-            df.to_json(output_path, orient='records', indent=2)
-            print(f"  Exported {dataset}: {len(df)} records")
+        datasets = datasets or self.list_datasets()
 
-    def import_from_json(self, json_path: Union[str, Path], dataset: str) -> pd.DataFrame:
-        """
-        Import a dataset from JSON file.
-
-        Args:
-            json_path: Path to JSON file
-            dataset: Dataset name to store as
-
-        Returns:
-            Imported DataFrame
-        """
-        df = pd.read_json(json_path)
-        self.put(dataset, df, source="json_import")
-        return df
+        for dataset in datasets:
+            if self.has_dataset(dataset):
+                df = self.get(dataset)
+                output_path = output_dir / f"{dataset}.parquet"
+                df.to_parquet(output_path, index=False, compression='snappy')
+                print(f"  Exported {dataset}: {len(df)} records")
 
     def export_to_csv(self, output_dir: Union[str, Path], datasets: Optional[list[str]] = None) -> None:
         """
@@ -517,6 +499,22 @@ class Database:
                 output_path = output_dir / f"{dataset}.csv"
                 df.to_csv(output_path, index=False)
                 print(f"  Exported {dataset}: {len(df)} records")
+
+    def export_to_json(self, output_dir: Union[str, Path]) -> None:
+        """
+        Export all datasets to JSON format (for portability).
+
+        Args:
+            output_dir: Output directory
+        """
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        for dataset in self.list_datasets():
+            df = self.get(dataset)
+            output_path = output_dir / f"{dataset}.json"
+            df.to_json(output_path, orient='records', indent=2)
+            print(f"  Exported {dataset}: {len(df)} records")
 
     def export_to_excel(
         self,
@@ -572,7 +570,6 @@ class Database:
         if not parquet_path.exists():
             raise FileNotFoundError(f"Parquet file not found: {parquet_path}")
 
-        # Use filename as dataset name if not specified
         if dataset is None:
             dataset = parquet_path.stem
 
@@ -611,6 +608,21 @@ class Database:
         df = pd.read_csv(csv_path, **read_csv_kwargs)
         self.put(dataset, df, source=source)
         print(f"  Imported {dataset}: {len(df)} records")
+        return df
+
+    def import_from_json(self, json_path: Union[str, Path], dataset: str) -> pd.DataFrame:
+        """
+        Import a dataset from JSON file.
+
+        Args:
+            json_path: Path to JSON file
+            dataset: Dataset name to store as
+
+        Returns:
+            Imported DataFrame
+        """
+        df = pd.read_json(json_path)
+        self.put(dataset, df, source="json_import")
         return df
 
     def import_directory(
@@ -670,64 +682,142 @@ class Database:
         return results
 
     # =========================================================================
+    # Migration from Parquet
+    # =========================================================================
+
+    def migrate_from_parquet(self, parquet_dir: Optional[Union[str, Path]] = None) -> int:
+        """
+        Migrate existing parquet files to SQLite database.
+
+        Args:
+            parquet_dir: Directory with parquet files (default: self.data_dir)
+
+        Returns:
+            Number of tables migrated
+        """
+        parquet_dir = Path(parquet_dir) if parquet_dir else self.data_dir
+
+        parquet_files = list(parquet_dir.glob("*.parquet"))
+        if not parquet_files:
+            print("No parquet files found to migrate")
+            return 0
+
+        print(f"Migrating {len(parquet_files)} parquet files to SQLite...")
+
+        migrated = 0
+        for pq_file in parquet_files:
+            dataset = pq_file.stem
+            if dataset.startswith('_'):
+                continue
+
+            try:
+                df = pd.read_parquet(pq_file)
+                self.put(dataset, df, source="parquet_migration")
+                print(f"  Migrated {dataset}: {len(df)} records")
+                migrated += 1
+            except Exception as e:
+                print(f"  ERROR migrating {dataset}: {e}")
+
+        print(f"\nMigrated {migrated} tables to SQLite")
+        return migrated
+
+    def cleanup_parquet_files(self, parquet_dir: Optional[Union[str, Path]] = None) -> int:
+        """
+        Remove old parquet files after migration.
+
+        Args:
+            parquet_dir: Directory with parquet files (default: self.data_dir)
+
+        Returns:
+            Number of files removed
+        """
+        parquet_dir = Path(parquet_dir) if parquet_dir else self.data_dir
+
+        removed = 0
+        for pq_file in parquet_dir.glob("*.parquet"):
+            pq_file.unlink()
+            removed += 1
+            print(f"  Removed {pq_file.name}")
+
+        # Also remove old metadata json
+        old_metadata = parquet_dir / "_metadata.json"
+        if old_metadata.exists():
+            old_metadata.unlink()
+            print("  Removed _metadata.json")
+
+        # Remove sideloaded directory if empty
+        sideload_dir = parquet_dir / "sideloaded"
+        if sideload_dir.exists():
+            for pq_file in sideload_dir.glob("*.parquet"):
+                pq_file.unlink()
+                removed += 1
+            old_meta = sideload_dir / "_metadata.json"
+            if old_meta.exists():
+                old_meta.unlink()
+            try:
+                sideload_dir.rmdir()
+            except OSError:
+                pass
+
+        print(f"\nRemoved {removed} parquet files")
+        return removed
+
+    # =========================================================================
     # Schema Versioning
     # =========================================================================
 
-    SCHEMA_VERSION = 1
+    SCHEMA_VERSION = 2  # Version 2 = SQLite storage
 
     def get_schema_version(self) -> int:
         """Get the current database schema version."""
-        metadata = self._load_metadata()
-        return metadata.get("schema_version", 1)
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='_schema_version'"
+            )
+            if cursor.fetchone() is None:
+                return 1  # Old parquet-based schema
+
+            cursor = conn.execute("SELECT version FROM _schema_version")
+            row = cursor.fetchone()
+            return row[0] if row else 1
 
     def set_schema_version(self, version: int) -> None:
         """Set the database schema version."""
-        metadata = self._load_metadata()
-        metadata["schema_version"] = version
-        self._save_metadata()
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER)
+            """)
+            conn.execute("DELETE FROM _schema_version")
+            conn.execute("INSERT INTO _schema_version VALUES (?)", (version,))
+            conn.commit()
 
     def needs_migration(self) -> bool:
         """Check if database needs migration to current schema."""
-        return self.get_schema_version() < self.SCHEMA_VERSION
+        # Check for old parquet files
+        parquet_files = list(self.data_dir.glob("*.parquet"))
+        return len(parquet_files) > 0
 
     def migrate(self) -> None:
         """
         Run database migrations to bring schema up to date.
 
-        Migrations are run in order from current version to SCHEMA_VERSION.
+        Migrates from parquet files to SQLite if needed.
         """
-        current = self.get_schema_version()
-        target = self.SCHEMA_VERSION
-
-        if current >= target:
-            print(f"Database schema is up to date (v{current})")
+        if not self.needs_migration():
+            print("Database is up to date (SQLite format)")
             return
 
-        print(f"Migrating database from v{current} to v{target}")
+        print("Migrating from parquet to SQLite...")
+        migrated = self.migrate_from_parquet()
 
-        # Run migrations in order
-        migrations = {
-            # version: migration_function
-            # 2: self._migrate_v1_to_v2,
-            # 3: self._migrate_v2_to_v3,
-        }
-
-        for version in range(current + 1, target + 1):
-            if version in migrations:
-                print(f"  Running migration to v{version}...")
-                migrations[version]()
-
-        self.set_schema_version(target)
-        print(f"Migration complete. Database is now at v{target}")
+        if migrated > 0:
+            self.set_schema_version(self.SCHEMA_VERSION)
+            print("\nMigration complete!")
+            print("Run db.cleanup_parquet_files() to remove old parquet files")
 
     def validate_integrity(self) -> dict:
         """
         Validate database integrity.
-
-        Checks:
-        - All Parquet files are readable
-        - Metadata matches actual files
-        - No orphaned files
 
         Returns:
             Dict with validation results
@@ -739,37 +829,22 @@ class Database:
             "datasets_checked": 0,
         }
 
-        metadata = self._load_metadata()
-        metadata_datasets = set(metadata.get("datasets", {}).keys())
+        datasets = self.list_datasets()
 
-        # Check files on disk
-        parquet_files = set(
-            f.stem for f in self.data_dir.glob("*.parquet")
-        )
-
-        # Datasets in metadata but missing files
-        missing_files = metadata_datasets - parquet_files
-        for dataset in missing_files:
-            results["errors"].append(f"Missing file for dataset: {dataset}")
-            results["valid"] = False
-
-        # Files on disk not in metadata
-        orphaned_files = parquet_files - metadata_datasets
-        for dataset in orphaned_files:
-            results["warnings"].append(f"Orphaned file (not in metadata): {dataset}.parquet")
-
-        # Validate each dataset is readable
-        for dataset in metadata_datasets & parquet_files:
+        for dataset in datasets:
             try:
-                df = pd.read_parquet(self._dataset_path(dataset))
-                expected_count = metadata["datasets"][dataset].get("record_count", 0)
-                actual_count = len(df)
+                df = self.get(dataset)
+                info = self.get_sync_info(dataset)
 
-                if expected_count != actual_count:
-                    results["warnings"].append(
-                        f"{dataset}: record count mismatch "
-                        f"(metadata: {expected_count}, actual: {actual_count})"
-                    )
+                if info:
+                    expected_count = info.get("record_count", 0)
+                    actual_count = len(df)
+
+                    if expected_count != actual_count:
+                        results["warnings"].append(
+                            f"{dataset}: record count mismatch "
+                            f"(metadata: {expected_count}, actual: {actual_count})"
+                        )
 
                 results["datasets_checked"] += 1
 
@@ -779,59 +854,17 @@ class Database:
 
         return results
 
-    def repair(self, fix_orphans: bool = True, update_counts: bool = True) -> None:
+    def vacuum(self) -> None:
         """
-        Repair database inconsistencies.
+        Optimize database by reclaiming unused space.
 
-        Args:
-            fix_orphans: Add orphaned files to metadata
-            update_counts: Update record counts in metadata
+        Run this after deleting many datasets.
         """
-        print("Repairing database...")
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("VACUUM")
+        print(f"Vacuumed {self.db_path.name}")
 
-        metadata = self._load_metadata()
-        metadata_datasets = set(metadata.get("datasets", {}).keys())
-        parquet_files = set(f.stem for f in self.data_dir.glob("*.parquet"))
-
-        # Fix orphaned files
-        if fix_orphans:
-            orphaned = parquet_files - metadata_datasets
-            for dataset in orphaned:
-                try:
-                    df = pd.read_parquet(self._dataset_path(dataset))
-                    metadata["datasets"][dataset] = {
-                        "last_sync": None,
-                        "record_count": len(df),
-                        "source": "repair",
-                        "category": get_category_for_dataset(dataset),
-                        "file_size_bytes": self._dataset_path(dataset).stat().st_size,
-                    }
-                    print(f"  Added orphaned dataset to metadata: {dataset}")
-                except Exception as e:
-                    print(f"  Could not repair {dataset}: {e}")
-
-        # Update record counts
-        if update_counts:
-            for dataset in metadata_datasets & parquet_files:
-                try:
-                    df = pd.read_parquet(self._dataset_path(dataset))
-                    old_count = metadata["datasets"][dataset].get("record_count", 0)
-                    new_count = len(df)
-
-                    if old_count != new_count:
-                        metadata["datasets"][dataset]["record_count"] = new_count
-                        metadata["datasets"][dataset]["file_size_bytes"] = \
-                            self._dataset_path(dataset).stat().st_size
-                        print(f"  Updated {dataset} count: {old_count} -> {new_count}")
-
-                except Exception as e:
-                    print(f"  Could not update {dataset}: {e}")
-
-        # Remove missing datasets from metadata
-        missing = metadata_datasets - parquet_files
-        for dataset in missing:
-            del metadata["datasets"][dataset]
-            print(f"  Removed missing dataset from metadata: {dataset}")
-
-        self._save_metadata()
-        print("Repair complete")
+        if self.sideload_db_path.exists():
+            with sqlite3.connect(self.sideload_db_path) as conn:
+                conn.execute("VACUUM")
+            print(f"Vacuumed {self.sideload_db_path.name}")

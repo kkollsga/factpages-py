@@ -51,17 +51,41 @@ from .client import Factpages, ClientConfig
 from .database import Database
 from .datasets import LAYERS, TABLES, FACTMAPS_LAYERS
 from .entity_config import EntityConfig, CustomEntity, generate_config_template
+from .entities import (
+    Field, Discovery, Wellbore, Company, License, Entity,
+    Facility, Pipeline, Play, Block, Quadrant, TUF, Seismic,
+    Stratigraphy, BusinessArrangement
+)
 
 __version__ = "0.1.0"
 __author__ = "Norwegian Petroleum Data Community"
 __all__ = [
+    # Client
     "Factpages",
     "ClientConfig",
     "Database",
+    # Datasets
     "LAYERS",
     "TABLES",
     "FACTMAPS_LAYERS",
+    # Entity configuration
     "EntityConfig",
     "CustomEntity",
     "generate_config_template",
+    # Entity classes
+    "Field",
+    "Discovery",
+    "Wellbore",
+    "Company",
+    "License",
+    "Entity",
+    "Facility",
+    "Pipeline",
+    "Play",
+    "Block",
+    "Quadrant",
+    "TUF",
+    "Seismic",
+    "Stratigraphy",
+    "BusinessArrangement",
 ]

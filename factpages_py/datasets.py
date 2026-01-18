@@ -7,8 +7,8 @@ The API is built on ArcGIS FeatureServer and provides two main services:
 1. DataService - Clean tabular data with consistent naming
 2. FactMaps - Display-oriented layers with pre-filtered views
 
-Note: Some API table names don't match FactPages downloads!
-See comments for important naming differences.
+Note: Production data (monthly/yearly) is NOT available via this API.
+For production data, use the Sodir FactPages downloads.
 """
 
 # =============================================================================
@@ -24,29 +24,29 @@ LAYERS = {
     "areastatus": 1100,
 
     # Structural geology
-    "structural_elements": 2000,
-    "domes": 2001,
-    "faults_boundaries": 2002,
-    "sediment_boundaries": 2004,
+    "structural_elements": 2000,  # str_structuralelements
+    "domes": 2001,  # str_domes
+    "faults_boundaries": 2002,  # str_faultsandboundaries
+    "sediment_boundaries": 2004,  # str_sedimentboundaries
 
     # Licensing areas
     "licence": 3000,
-    "licence_area_history": 3002,
-    "licence_document_area": 3006,
-    "licence_area_count": 3011,
-    "apa_gross": 3102,
-    "apa_open": 3103,
-    "announced_blocks_history": 3104,
-    "announced_history": 3106,
-    "apa_gross_history": 3107,
+    "licence_area_poly_hst": 3002,
+    "licence_document_area": 3006,  # licence_document_area_poly
+    "licence_area_count": 3011,  # licence_area_licenced_count
+    "apa_gross": 3102,  # licensing_activity_apa_gross
+    "apa_open": 3103,  # licensing_activity_apa_open
+    "announced_blocks_history": 3104,  # licensing_activity_announced_blocks_hst
+    "announced_history": 3106,  # licencing_activity_announced_hst
+    "apa_gross_history": 3107,  # licensing_activity_apa_gross_hst
     "afex_area": 3200,
-    "afex_area_history": 3201,
-    "business_arrangement_area": 3300,
-    "business_arrangement_history": 3301,
+    "afex_area_history": 3201,  # afex_area_area_poly_hst
+    "business_arrangement_area": 3300,  # bsns_arr_area
+    "business_arrangement_history": 3301,  # bsns_arr_area_area_poly_hst
 
     # Seismic surveys
-    "seismic_acquisition": 4000,
-    "seismic_acquisition_poly": 4008,
+    "seismic_acquisition": 4000,  # seis_acquisition
+    "seismic_acquisition_poly": 4008,  # seis_acquisition_poly_total
     "sbm_sample_point": 4501,
     "sbm_survey_area": 4502,
     "sbm_survey_line": 4503,
@@ -58,13 +58,13 @@ LAYERS = {
     "pipeline": 6100,
     "discovery": 7000,
     "discovery_map_reference": 7004,
-    "discovery_history": 7005,
+    "discovery_poly_hst": 7005,
     "field": 7100,
-    "play": 7800,
+    "play": 7800,  # play_current_public
 
     # Seabed minerals
-    "sbm_occurrence": 8001,
-    "sbm_play_resource_estimate": 8002,
+    "sbm_occurrence": 8001,  # sbm_occurence (typo in API)
+    "sbm_play_resource_estimate": 8002,  # sbm_play_resource_estimate_area
 }
 
 
@@ -77,86 +77,92 @@ TABLES = {
 
     # Stratigraphy
     "strat_litho": 2100,
-    "strat_litho_wellbore": 2101,  # Formation tops with depths!
+    "strat_litho_wellbore": 2101,
     "strat_litho_wellbore_core": 2102,
     "strat_chrono": 2200,
 
     # Licence details
     "licence_additional_area": 3001,
-    "licence_transfer_history": 3003,
+    "licence_transfer_hst": 3003,
     "licence_document": 3005,
-    "licence_licensee_history": 3007,
-    "licence_operator_history": 3008,
-    "licence_phase_history": 3009,
+    "licence_licensee_hst": 3007,
+    "licence_operator_hst": 3008,
+    "licence_phase_hst": 3009,
     "licence_task": 3010,
     "licensing_activity": 3100,
 
     # Business arrangement details
-    "business_arrangement_operator": 3302,
-    "business_arrangement_licensee_history": 3304,
-    "business_arrangement_transfer_history": 3305,
+    "business_arrangement_operator": 3302,  # bsns_arr_area_operator
+    "business_arrangement_licensee_hst": 3304,  # bsns_arr_area_licensee_hst
+    "business_arrangement_transfer_hst": 3305,  # bsns_arr_area_transfer_hst
 
     # Petroleum register
     "petreg_licence": 3400,
     "petreg_licence_licensee": 3401,
     "petreg_licence_message": 3402,
-    "petreg_licence_operator": 3403,
+    "petreg_licence_operator": 3403,  # petreg_licence_oper
 
     # Seismic details
-    "seismic_acquisition_area": 4001,
-    "seismic_acquisition_country": 4002,
-    "seismic_acquisition_progress": 4003,
-    "seismic_acquisition_survey_type": 4006,
-    "seismic_acquisition_2d": 4010,
-    "seismic_acquisition_3d": 4011,
-    "seismic_acquisition_4d": 4012,
+    "seismic_acquisition_company": 4001,  # seis_acquisition_company_doing
+    "seismic_acquisition_format": 4002,  # seis_acquisition_data_format
+    "seismic_acquisition_fishery": 4003,
+    "seismic_acquisition_for_company": 4004,
+    "seismic_acquisition_licence": 4005,
+    "seismic_acquisition_licences": 4006,
+    "seismic_acquisition_polygon": 4009,
+    "seismic_acquisition_progress": 4011,  # seis_acquisition_progress_notes
+    "seismic_acquisition_scientific": 4012,  # seis_acquisition_scientific_survey
+    "seismic_acquisition_vessel": 4013,
+    "seismic_acquisition_weekly_done": 4014,
+    "seismic_acquisition_weekly_plan": 4015,
 
     # Wellbore details
-    # IMPORTANT: API table names differ from FactPages!
-    "wellbore_casing": 5001,
-    "wellbore_core": 5002,  # CO2 samples (94 records), NOT core data!
-    "wellbore_core_photo": 5003,  # Actual core sample data (8,500+ records)
-    "wellbore_document": 5004,
-    "wellbore_dst": 5005,
-    "wellbore_exploration_all": 5006,
-    "wellbore_formation_top": 5007,  # Document metadata, NOT formation tops!
-    "wellbore_history": 5008,
-    "wellbore_mud": 5009,
-    "wellbore_oil_sample": 5010,
-    "wellbore_litho_strat": 5011,
-    "wellbore_log": 5013,
-    "wellbore_chrono_strat": 5014,
-    "wellbore_coordinates": 5015,
-    "wellbore_development_all": 5050,
+    "wellbore_casing": 5001,  # wellbore_casing_and_lot
+    "wellbore_co2": 5002,
+    "wellbore_core": 5003,
+    "wellbore_core_photo": 5004,
+    "wellbore_core_photo_aggr": 5005,
+    "wellbore_cutting": 5006,
+    "wellbore_document": 5007,
+    "wellbore_dst": 5008,
+    "wellbore_formation_top": 5009,
+    "wellbore_log": 5011,
+    "wellbore_mud": 5012,
+    "wellbore_oil_sample": 5013,
+    "wellbore_paly_slide": 5014,
+    "wellbore_thin_section": 5015,
+    "wellbore_history": 5050,
 
     # Facility details
-    "facility_history": 6001,
+    "facility_function": 6001,
     "tuf": 6200,
-    "tuf_owner": 6201,
-    "tuf_operator": 6202,
+    "tuf_operator_hst": 6201,
+    "tuf_owner_hst": 6202,
 
     # Discovery details
-    "discovery_area": 7001,
-    "discovery_operator": 7002,
-    "discovery_reserves": 7003,  # Time series reserve estimates
-    "discovery_resource": 7006,
-    "discovery_resource_chrono": 7007,
-    "discovery_resource_litho": 7008,
+    "discovery_description": 7001,
+    "discovery_extends_into": 7002,
+    "discovery_licensee_hst": 7003,
+    "discovery_operator_hst": 7006,
+    "discovery_owner_hst": 7007,
+    "discovery_reserves": 7008,
 
     # Field details
-    "field_activity_status": 7101,
-    "field_area": 7102,
-    "field_description": 7103,
-    "field_investment_yearly": 7104,
-    "field_licensee": 7105,
-    "field_operator": 7106,
-    "field_owner": 7107,
-    "field_production_monthly": 7108,
-    "field_production_yearly": 7109,
-    "field_reserves": 7110,
-    "field_in_place_volumes": 7111,
-    "field_pipeline_transport": 7113,
-    "field_facility_transport": 7114,
+    "field_activity_status_hst": 7101,
+    "field_description": 7102,
+    "field_discoveries_incl_hst": 7103,
+    "field_extends_into": 7104,
+    "field_image": 7106,
+    "field_investment_expected": 7107,
+    "field_licensee_hst": 7108,
+    "field_operator_hst": 7110,
+    "field_owner_hst": 7111,
+    "field_pdo_hst": 7112,
+    "field_reserves": 7113,
+    "field_reserves_company": 7114,
+
+    # Profiles
+    "profiles": 7300,
 
     # CO2 storage
     "csd_injection": 9001,
@@ -238,24 +244,22 @@ SUPPORTING_DATASETS = [
     # Stratigraphy
     "strat_chrono", "strat_litho", "strat_litho_wellbore", "strat_litho_wellbore_core",
     # Discovery
-    "discovery_reserves", "discovery_resource", "discovery_operator", "discovery_area",
+    "discovery_reserves", "discovery_description", "discovery_operator_hst",
+    "discovery_licensee_hst", "discovery_owner_hst",
     # Field
-    "field_reserves", "field_description", "field_activity_status", "field_area",
-    "field_operator", "field_owner", "field_in_place_volumes",
+    "field_reserves", "field_description", "field_activity_status_hst",
+    "field_operator_hst", "field_owner_hst", "field_licensee_hst",
+    "field_reserves_company", "field_investment_expected",
     # Wellbore
     "wellbore_casing", "wellbore_core_photo", "wellbore_dst", "wellbore_history",
-    "wellbore_chrono_strat", "wellbore_litho_strat", "wellbore_coordinates",
-    "wellbore_document", "wellbore_log", "wellbore_mud",
-    "wellbore_exploration_all", "wellbore_development_all",
+    "wellbore_formation_top", "wellbore_document", "wellbore_log", "wellbore_mud",
+    "wellbore_core", "wellbore_cutting", "wellbore_oil_sample",
     # Facility
-    "facility_history",
+    "facility_function",
     # Company & Licensing
-    "company", "licence_licensee_history", "licence_operator_history", "licensing_activity",
+    "company", "licence_licensee_hst", "licence_operator_hst", "licensing_activity",
 ]
 
-PRODUCTION_DATASETS = [
-    "field_production_monthly", "field_production_yearly",
-    "field_investment_yearly", "field_pipeline_transport", "field_facility_transport",
-]
-
-
+# Note: Production data is NOT available via this API
+# Use Sodir FactPages downloads for production data
+PRODUCTION_DATASETS = []

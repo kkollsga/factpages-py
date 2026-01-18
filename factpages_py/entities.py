@@ -59,6 +59,315 @@ def clear_alias_cache() -> None:
 # Display Wrapper Classes
 # =============================================================================
 
+class RelatedTableMixin:
+    """
+    Mixin that provides dynamic related table access for entity classes.
+
+    Requires the class to have:
+    - self._data: pd.Series with entity data
+    - self._db: Database instance
+    - self.id: Entity's primary ID
+
+    Example:
+        >>> troll = fp.field("troll")
+        >>> troll.field_reserves  # Returns DataFrame of related reserves
+        >>> troll.field_licensee_hst  # Returns DataFrame of licensees
+    """
+
+    # Common ID column patterns in Sodir data
+    ID_COLUMN_PATTERNS = [
+        'Npdid',      # Standard pattern: fldNpdidField, dscNpdidDiscovery
+        'NpdidField', # Specific patterns
+        'NpdidDiscovery',
+        'NpdidWellbore',
+        'NpdidLicence',
+        'NpdidCompany',
+        'NpdidFacility',
+    ]
+
+    @classmethod
+    def _find_id_columns(cls, df: pd.DataFrame) -> List[str]:
+        """Find potential ID columns in a DataFrame."""
+        id_cols = []
+        for col in df.columns:
+            for pattern in cls.ID_COLUMN_PATTERNS:
+                if pattern in col:
+                    id_cols.append(col)
+                    break
+        return id_cols
+
+    @classmethod
+    def _find_common_id_columns(cls, cols1: List[str], cols2: List[str]) -> List[tuple]:
+        """
+        Find common ID columns between two column lists.
+
+        Matches on specific ID type patterns (NpdidField, NpdidDiscovery, etc.)
+        not just the generic 'Npdid' pattern.
+        """
+        # Specific ID type patterns to match on
+        specific_patterns = [
+            'NpdidField', 'NpdidDiscovery', 'NpdidWellbore',
+            'NpdidLicence', 'NpdidCompany', 'NpdidFacility',
+        ]
+
+        common = []
+        for c1 in cols1:
+            for c2 in cols2:
+                # Match on specific patterns only
+                for pattern in specific_patterns:
+                    if pattern in c1 and pattern in c2:
+                        common.append((c1, c2))
+                        break
+        return common
+
+    def related(self, table_name: str) -> pd.DataFrame:
+        """
+        Get related rows from another table.
+
+        Finds the best matching ID column between this entity's data and the
+        target table, then filters the target table to matching rows.
+
+        Uses intelligent ID column matching:
+        - Prioritizes the ID column that best matches the target table name
+        - e.g., for 'field' table, prefers 'fldNpdidField' over 'cmpNpdidCompany'
+
+        Args:
+            table_name: Name of the table to query
+
+        Returns:
+            DataFrame with matching rows from the target table
+
+        Example:
+            >>> troll = fp.field("troll")
+            >>> reserves = troll.related('field_reserves')
+            >>> licensees = troll.related('field_licensee_hst')
+        """
+        target_df = self._db.get_or_none(table_name)
+        if target_df is None:
+            return pd.DataFrame()
+
+        # Find ID columns in both
+        my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
+        target_id_cols = self._find_id_columns(target_df)
+
+        # Find common ID columns
+        common = self._find_common_id_columns(my_id_cols, target_id_cols)
+
+        if not common:
+            return pd.DataFrame()
+
+        # Prioritize the ID column that best matches the target table name
+        # e.g., for 'field' table, prefer 'NpdidField' pattern
+        best_match = None
+        table_lower = table_name.lower()
+
+        # Map table names to their primary ID patterns
+        table_patterns = {
+            'field': 'NpdidField',
+            'discovery': 'NpdidDiscovery',
+            'wellbore': 'NpdidWellbore',
+            'licence': 'NpdidLicence',
+            'company': 'NpdidCompany',
+            'facility': 'NpdidFacility',
+        }
+
+        # Find the primary pattern for this table
+        primary_pattern = None
+        for prefix, pattern in table_patterns.items():
+            if table_lower.startswith(prefix):
+                primary_pattern = pattern
+                break
+
+        # Look for a match using the primary pattern first
+        if primary_pattern:
+            for my_col, target_col in common:
+                if primary_pattern in my_col and primary_pattern in target_col:
+                    best_match = (my_col, target_col)
+                    break
+
+        # If no primary match found, use the first available
+        if best_match is None:
+            best_match = common[0]
+
+        # Filter using only the best matching ID column
+        my_col, target_col = best_match
+        my_value = self._data.get(my_col)
+        if pd.notna(my_value):
+            return target_df[target_df[target_col] == my_value]
+
+        return pd.DataFrame()
+
+    def _lookup_related_table(self, name: str) -> Optional[pd.DataFrame]:
+        """
+        Try to find a related table by name.
+
+        Returns DataFrame if table exists (may be empty), None if table doesn't exist.
+        """
+        if self._db.has_dataset(name):
+            return self.related(name)
+        return None
+
+    def _get_primary_id_pattern(self) -> Optional[str]:
+        """
+        Determine the primary ID pattern for this entity.
+
+        Returns the ID pattern that represents this entity's own identity
+        (e.g., 'NpdidField' for Field entities).
+        """
+        my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
+        if not my_id_cols:
+            return None
+
+        # The primary ID is typically the first one, or we can infer from table name
+        # For entities with _table_name, use that
+        table_name = getattr(self, '_table_name', None) or type(self).__name__.lower()
+
+        table_patterns = {
+            'field': 'NpdidField',
+            'discovery': 'NpdidDiscovery',
+            'wellbore': 'NpdidWellbore',
+            'licence': 'NpdidLicence',
+            'license': 'NpdidLicence',
+            'company': 'NpdidCompany',
+            'facility': 'NpdidFacility',
+        }
+
+        # Check if table name starts with known prefix
+        for prefix, pattern in table_patterns.items():
+            if table_name.lower().startswith(prefix):
+                # Verify this entity actually has this pattern
+                for col in my_id_cols:
+                    if pattern in col:
+                        return pattern
+                break
+
+        # Fallback: use the pattern from the first ID column
+        if my_id_cols:
+            for pattern in ['NpdidField', 'NpdidDiscovery', 'NpdidWellbore',
+                            'NpdidLicence', 'NpdidCompany', 'NpdidFacility']:
+                if pattern in my_id_cols[0]:
+                    return pattern
+
+        return None
+
+    @property
+    def connections(self) -> Dict[str, List[str]]:
+        """
+        Get lists of incoming and outgoing table connections.
+
+        Returns a dict with:
+        - 'incoming': Tables that reference this entity (have matching ID column)
+        - 'outgoing': Tables this entity references (via foreign keys)
+
+        Example:
+            >>> troll = fp.field("troll")
+            >>> troll.connections
+            {'incoming': ['field_reserves', 'field_licensee_hst', ...],
+             'outgoing': ['company']}
+        """
+        incoming = []
+        outgoing = []
+
+        my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
+        primary_pattern = self._get_primary_id_pattern()
+
+        # Get all available tables
+        all_tables = self._db.list_datasets()
+
+        for table_name in all_tables:
+            # Skip internal tables
+            if table_name.startswith('_'):
+                continue
+
+            target_df = self._db.get_or_none(table_name)
+            if target_df is None or target_df.empty:
+                continue
+
+            target_id_cols = self._find_id_columns(target_df)
+            common = self._find_common_id_columns(my_id_cols, target_id_cols)
+
+            if not common:
+                continue
+
+            # Classify as incoming or outgoing
+            for my_col, _ in common:
+                # Check if this is the primary ID pattern
+                if primary_pattern and primary_pattern in my_col:
+                    # This table references our primary ID -> incoming
+                    if table_name not in incoming:
+                        incoming.append(table_name)
+                else:
+                    # We reference this table via foreign key -> outgoing
+                    if table_name not in outgoing:
+                        outgoing.append(table_name)
+
+        return {
+            'incoming': sorted(incoming),
+            'outgoing': sorted(outgoing)
+        }
+
+    @property
+    def full_connections(self) -> Dict[str, Dict[str, pd.DataFrame]]:
+        """
+        Get filtered DataFrames for all incoming and outgoing connections.
+
+        Returns a dict with:
+        - 'incoming': Dict of {table_name: filtered_DataFrame} for tables that reference this entity
+        - 'outgoing': Dict of {table_name: filtered_DataFrame} for tables this entity references
+
+        Example:
+            >>> troll = fp.field("troll")
+            >>> conns = troll.full_connections
+            >>> conns['incoming']['field_reserves']  # DataFrame of Troll's reserves
+            >>> conns['outgoing']['company']  # DataFrame of Troll's operator
+        """
+        incoming = {}
+        outgoing = {}
+
+        my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
+        primary_pattern = self._get_primary_id_pattern()
+
+        # Get all available tables
+        all_tables = self._db.list_datasets()
+
+        for table_name in all_tables:
+            # Skip internal tables
+            if table_name.startswith('_'):
+                continue
+
+            target_df = self._db.get_or_none(table_name)
+            if target_df is None or target_df.empty:
+                continue
+
+            target_id_cols = self._find_id_columns(target_df)
+            common = self._find_common_id_columns(my_id_cols, target_id_cols)
+
+            if not common:
+                continue
+
+            # Get the related data
+            related_df = self.related(table_name)
+            if related_df.empty:
+                continue
+
+            # Classify as incoming or outgoing based on primary ID pattern
+            is_incoming = False
+            for my_col, _ in common:
+                if primary_pattern and primary_pattern in my_col:
+                    is_incoming = True
+                    break
+
+            if is_incoming:
+                incoming[table_name] = related_df
+            else:
+                outgoing[table_name] = related_df
+
+        return {
+            'incoming': incoming,
+            'outgoing': outgoing
+        }
+
+
 class PartnersList(list):
     """
     A list of partners with nice formatted printing.
@@ -269,9 +578,13 @@ class EntityDataFrame(pd.DataFrame):
         return f"EntityDataFrame({self._entity_type}: {len(self)} records)"
 
 
-class Field:
+class Field(RelatedTableMixin):
     """
     Represents a petroleum field on the Norwegian Continental Shelf.
+
+    Supports dynamic related table access:
+        >>> troll.field_reserves  # Returns DataFrame
+        >>> troll.field_licensee_hst  # Returns DataFrame
 
     Example:
         >>> fp = Factpages()
@@ -371,8 +684,9 @@ class Field:
 
     @property
     def production_start(self) -> Optional[str]:
-        """Production start date."""
-        return self._get_column('fldProdStartDate', None)
+        """Production start date (if available)."""
+        # Use silent get - this column may not exist in all field datasets
+        return self._data.get('fldProdStartDate')
 
     @property
     def geometry(self) -> Optional[dict]:
@@ -407,7 +721,7 @@ class Field:
             ...
         """
         if self._partners_cache is None:
-            licensees = self._db.get_or_none('field_licensee')
+            licensees = self._db.get_or_none('field_licensee_hst')
             if licensees is not None:
                 self._partners_cache = licensees[
                     licensees['fldNpdidField'] == self.id
@@ -781,6 +1095,22 @@ class Field:
         return EntityDataFrame(field_discoveries, entity_type="Discoveries", field_name=self.name)
 
     # =========================================================================
+    # Dynamic Related Table Access
+    # =========================================================================
+
+    def __getattr__(self, name: str) -> Any:
+        """Enable dynamic access to related tables."""
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+        # Try related table lookup
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    # =========================================================================
     # String Representations
     # =========================================================================
 
@@ -788,63 +1118,11 @@ class Field:
         return f"Field('{self.name}')"
 
     def __str__(self) -> str:
-        lines = [
-            f"\n{'=' * 60}",
-            f"FIELD: {self.name}",
-            f"{'=' * 60}",
-            f"Status:     {self.status}",
-            f"Operator:   {self.operator}",
-            f"HC Type:    {self.hc_type}",
-            f"Main Area:  {self.main_area}",
-        ]
-
-        if self.discovery_year:
-            lines.append(f"Discovered: {self.discovery_year}")
-        if self.production_start:
-            lines.append(f"Prod Start: {self.production_start}")
-
-        # Add reserves
-        reserves = self.reserves
-        if reserves:
-            lines.append(f"\nReserves:")
-            if reserves.get('oil_msm3', 0) > 0:
-                lines.append(f"  Oil:         {reserves['oil_msm3']:,.1f} mill Sm3")
-            if reserves.get('gas_bsm3', 0) > 0:
-                lines.append(f"  Gas:         {reserves['gas_bsm3']:,.1f} bill Sm3")
-            if reserves.get('ngl_mtoe', 0) > 0:
-                lines.append(f"  NGL:         {reserves['ngl_mtoe']:,.1f} mill toe")
-            if reserves.get('condensate_msm3', 0) > 0:
-                lines.append(f"  Condensate:  {reserves['condensate_msm3']:,.1f} mill Sm3")
-
-        # Add cumulative production
-        try:
-            history = self.production_history(clean=True)
-            if not history.empty:
-                total_oil = history['oil_msm3'].sum() if 'oil_msm3' in history.columns else 0
-                total_gas = history['gas_bsm3'].sum() if 'gas_bsm3' in history.columns else 0
-                if total_oil > 0 or total_gas > 0:
-                    lines.append(f"\nProduced (cumulative):")
-                    if total_oil > 0:
-                        lines.append(f"  Oil:         {total_oil:,.1f} mill Sm3")
-                    if total_gas > 0:
-                        lines.append(f"  Gas:         {total_gas:,.1f} bill Sm3")
-        except Exception:
-            pass  # Skip if production data unavailable
-
-        # Add partners summary
-        partners = self.partners
-        if partners:
-            lines.append(f"\nPartners ({len(partners)}):")
-            for p in partners[:5]:  # Show top 5
-                op_marker = " *" if p['is_operator'] else ""
-                lines.append(f"  {p['company']:<40} {p['share']:>6.2f}%{op_marker}")
-            if len(partners) > 5:
-                lines.append(f"  ... and {len(partners) - 5} more")
-
-        return '\n'.join(lines)
+        from .display import render_entity
+        return render_entity(self, "field")
 
 
-class Discovery:
+class Discovery(RelatedTableMixin):
     """
     Represents a petroleum discovery on the Norwegian Continental Shelf.
 
@@ -1048,6 +1326,21 @@ class Discovery:
         return EntityDataFrame(discovery_wells, entity_type="Wells", field_name=self.name)
 
     # =========================================================================
+    # Dynamic Related Table Access
+    # =========================================================================
+
+    def __getattr__(self, name: str) -> Any:
+        """Enable dynamic access to related tables."""
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    # =========================================================================
     # String Representations
     # =========================================================================
 
@@ -1055,54 +1348,17 @@ class Discovery:
         return f"Discovery('{self.name}')"
 
     def __str__(self) -> str:
-        resources = self.resources
-
-        lines = [
-            f"\nDiscovery: {self.name}",
-            f"{'=' * 55}",
-        ]
-
-        # Key info: year, type, status
-        year_str = str(self.discovery_year) if self.discovery_year else "?"
-        lines.append(f"Discovered: {year_str:<8}  HC Type: {self.hc_type}")
-        lines.append(f"Status:     {self.status}")
-        lines.append(f"Area:       {self.main_area}")
-
-        # Discovery well - critical for geologists!
-        if self.discovery_well:
-            lines.append(f"Discovery Well: {self.discovery_well}")
-
-        lines.append(f"Operator:   {self.operator}")
-
-        # Development status
-        if self.field_name:
-            lines.append("")
-            lines.append(f"→ Developed as field: {self.field_name}")
-
-        # Resources (the key numbers!)
-        if resources:
-            lines.append("")
-            lines.append("Recoverable Resources:")
-            res_parts = []
-            if resources.get('oil_msm3'):
-                res_parts.append(f"Oil: {resources['oil_msm3']:.1f} MSm³")
-            if resources.get('gas_bsm3'):
-                res_parts.append(f"Gas: {resources['gas_bsm3']:.1f} BSm³")
-            if resources.get('condensate_msm3'):
-                res_parts.append(f"Cond: {resources['condensate_msm3']:.1f} MSm³")
-            if res_parts:
-                lines.append(f"  {', '.join(res_parts)}")
-
-        # Exploration hints
-        lines.append("")
-        lines.append("Explore: .wells  .resources_history()  .discovery_well")
-
-        return '\n'.join(lines)
+        from .display import render_entity
+        return render_entity(self, "discovery")
 
 
-class Wellbore:
+class Wellbore(RelatedTableMixin):
     """
     Represents a wellbore drilled on the Norwegian Continental Shelf.
+
+    Supports dynamic related table access:
+        >>> well.wellbore_dst  # Returns DataFrame
+        >>> well.strat_litho_wellbore  # Returns DataFrame
 
     Example:
         >>> fp = Factpages()
@@ -1368,6 +1624,21 @@ class Wellbore:
         )
 
     # =========================================================================
+    # Dynamic Related Table Access
+    # =========================================================================
+
+    def __getattr__(self, name: str) -> Any:
+        """Enable dynamic access to related tables."""
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    # =========================================================================
     # String Representations
     # =========================================================================
 
@@ -1375,49 +1646,8 @@ class Wellbore:
         return f"Wellbore('{self.name}')"
 
     def __str__(self) -> str:
-        lines = [
-            f"\nWellbore: {self.name}",
-            f"{'=' * 55}",
-        ]
-
-        # Classification
-        lines.append(f"Purpose:  {self.purpose:<12}  Content: {self.content}")
-        lines.append(f"Status:   {self.status:<12}  Area:    {self.main_area}")
-
-        # Depths
-        depth_info = []
-        if self.total_depth:
-            depth_info.append(f"TD: {self.total_depth:.0f}m")
-        if self.water_depth:
-            depth_info.append(f"WD: {self.water_depth:.0f}m")
-        if depth_info:
-            lines.append(f"Depth:    {', '.join(depth_info)}")
-
-        # Dates and operator
-        if self.completion_date:
-            lines.append(f"Completed: {self.completion_date}")
-        lines.append(f"Operator:  {self.operator}")
-
-        # HC bearing formations (key geological info!)
-        if self.hc_formations:
-            lines.append("")
-            lines.append(f"HC Formations: {', '.join(self.hc_formations)}")
-        if self.hc_ages:
-            lines.append(f"HC Ages:       {', '.join(self.hc_ages)}")
-
-        # Associations
-        if self.field_name or self.discovery_name:
-            lines.append("")
-            if self.field_name:
-                lines.append(f"Field:     {self.field_name}")
-            if self.discovery_name:
-                lines.append(f"Discovery: {self.discovery_name}")
-
-        # Exploration hints
-        lines.append("")
-        lines.append("Explore: .formation_tops  .dst_results  .cores  .drilling_history  .casing")
-
-        return '\n'.join(lines)
+        from .display import render_entity
+        return render_entity(self, "wellbore")
 
 
 class FieldInterestsList(list):
@@ -1481,9 +1711,12 @@ class FieldInterestsList(list):
         return f"FieldInterestsList({len(self)} fields)"
 
 
-class Company:
+class Company(RelatedTableMixin):
     """
     Represents a company operating on the NCS.
+
+    Supports dynamic related table access:
+        >>> equinor.field_licensee_hst  # Returns DataFrame
 
     Example:
         >>> fp = Factpages()
@@ -1525,7 +1758,7 @@ class Company:
     def _load_field_interests(self) -> pd.DataFrame:
         """Load field licensee data for this company."""
         if self._field_interests_cache is None:
-            licensees = self._db.get_or_none('field_licensee')
+            licensees = self._db.get_or_none('field_licensee_hst')
             if licensees is not None:
                 # Filter by company name
                 self._field_interests_cache = licensees[
@@ -1634,6 +1867,21 @@ class Company:
         return EntityDataFrame(drilled, entity_type="Wells Drilled")
 
     # =========================================================================
+    # Dynamic Related Table Access
+    # =========================================================================
+
+    def __getattr__(self, name: str) -> Any:
+        """Enable dynamic access to related tables."""
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    # =========================================================================
     # String Representations
     # =========================================================================
 
@@ -1641,30 +1889,17 @@ class Company:
         return f"Company('{self.name}')"
 
     def __str__(self) -> str:
-        interests = self.field_interests
-        operated = len([i for i in interests if i.get('is_operator')])
-
-        lines = [
-            f"\nCompany: {self.name}",
-            f"{'=' * 55}",
-            f"Nation: {self.nation:<10}  Org#: {self.org_number}",
-            f"Fields: {len(interests):<10}  Operated: {operated}",
-        ]
-
-        if interests:
-            lines.append(f"\nTop equity positions (* = operator):")
-            for i in interests[:5]:
-                op_mark = "*" if i.get('is_operator') else " "
-                lines.append(f"  {op_mark} {i['field']:<28} {i['share']:>6.2f}%")
-
-        lines.append("")
-        lines.append("Explore: .field_interests  .operated_fields  .wells_drilled")
-        return '\n'.join(lines)
+        from .display import render_entity
+        return render_entity(self, "company")
 
 
-class License:
+class License(RelatedTableMixin):
     """
     Represents a production license on the Norwegian Continental Shelf.
+
+    Supports dynamic related table access:
+        >>> lic.licence_licensee_hst  # Returns DataFrame
+        >>> lic.licence_task  # Returns DataFrame
 
     Example:
         >>> fp = Factpages()
@@ -1752,7 +1987,7 @@ class License:
     def _load_licensees(self) -> pd.DataFrame:
         """Load licensee history for this license."""
         if self._licensees_cache is None:
-            licensees = self._db.get_or_none('licence_licensee_history')
+            licensees = self._db.get_or_none('licence_licensee_hst')
             if licensees is not None:
                 self._licensees_cache = licensees[
                     licensees['prlNpdidLicence'] == self.id
@@ -1896,7 +2131,7 @@ class License:
             >>> lic = fp.license("PL001")
             >>> print(lic.phase_history)
         """
-        phases = self._db.get_or_none('licence_phase_history')
+        phases = self._db.get_or_none('licence_phase_hst')
         if phases is None:
             return EntityDataFrame(entity_type="Phase History", field_name=self.name)
 
@@ -1935,6 +2170,21 @@ class License:
         )
 
     # =========================================================================
+    # Dynamic Related Table Access
+    # =========================================================================
+
+    def __getattr__(self, name: str) -> Any:
+        """Enable dynamic access to related tables."""
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    # =========================================================================
     # String Representations
     # =========================================================================
 
@@ -1942,32 +2192,1032 @@ class License:
         return f"License('{self.name}')"
 
     def __str__(self) -> str:
-        licensees = self.licensees
+        from .display import render_entity
+        return render_entity(self, "license")
 
-        lines = [
-            f"\nLicense: {self.name}",
-            f"{'=' * 55}",
-            f"Status:   {self.status:<12}  Phase: {self.current_phase}",
-            f"Area:     {self.main_area}",
-            f"Operator: {self.operator}",
+
+class Entity:
+    """
+    Generic entity representing a row from any table.
+
+    Used for accessing data from tables that don't have a dedicated
+    entity class (like Field, Discovery, etc.).
+
+    Supports dynamic related table access via attribute syntax:
+        >>> reserves = fp.field_reserves(43506)
+        >>> reserves.field  # Returns matching rows from field table
+
+    Example:
+        >>> reserves = fp.field_reserves(43506)  # Get by npdid
+        >>> print(reserves)
+        >>> print(reserves.fldRecoverableOil)
+        >>> print(reserves.field)  # Get related field data
+    """
+
+    # Common ID column patterns in Sodir data
+    ID_COLUMN_PATTERNS = [
+        'Npdid',      # Standard pattern: fldNpdidField, dscNpdidDiscovery
+        'NpdidField', # Specific patterns
+        'NpdidDiscovery',
+        'NpdidWellbore',
+        'NpdidLicence',
+        'NpdidCompany',
+        'NpdidFacility',
+    ]
+
+    def __init__(self, data: pd.Series, db: "Database", table_name: str):
+        self._data = data
+        self._db = db
+        self._table_name = table_name
+
+    @classmethod
+    def find_id_columns(cls, df: pd.DataFrame) -> List[str]:
+        """
+        Find potential ID columns in a DataFrame.
+
+        Returns columns that match common ID patterns (Npdid).
+        """
+        id_cols = []
+        for col in df.columns:
+            for pattern in cls.ID_COLUMN_PATTERNS:
+                if pattern in col:
+                    id_cols.append(col)
+                    break
+        return id_cols
+
+    @classmethod
+    def find_by_id(cls, df: pd.DataFrame, id_value: int) -> Optional[pd.Series]:
+        """
+        Find a row by searching ID columns.
+
+        Args:
+            df: DataFrame to search
+            id_value: ID value to find
+
+        Returns:
+            Matching row or None
+        """
+        id_cols = cls.find_id_columns(df)
+
+        for col in id_cols:
+            match = df[df[col] == id_value]
+            if not match.empty:
+                return match.iloc[0]
+
+        return None
+
+    @classmethod
+    def find_common_id_columns(cls, cols1: List[str], cols2: List[str]) -> List[tuple]:
+        """
+        Find common ID columns between two column lists.
+
+        Matches on specific ID type patterns (NpdidField, NpdidDiscovery, etc.)
+        not just the generic 'Npdid' pattern.
+        """
+        # Specific ID type patterns to match on
+        specific_patterns = [
+            'NpdidField', 'NpdidDiscovery', 'NpdidWellbore',
+            'NpdidLicence', 'NpdidCompany', 'NpdidFacility',
         ]
 
-        # Dates
-        if self.date_granted:
-            lines.append(f"Granted:  {self.date_granted}")
-        if self.date_valid_to:
-            lines.append(f"Expires:  {self.date_valid_to}")
+        common = []
+        for c1 in cols1:
+            for c2 in cols2:
+                # Match on specific patterns only
+                for pattern in specific_patterns:
+                    if pattern in c1 and pattern in c2:
+                        common.append((c1, c2))
+                        break
+        return common
 
-        # Licensees summary
-        if licensees:
-            lines.append(f"\nLicensees ({len(licensees)}):")
-            for p in licensees[:5]:
-                op_mark = "*" if p.get('is_operator') else " "
-                lines.append(f"  {op_mark} {p['company'][:28]:<28} {p['share']:>6.2f}%")
-            if len(licensees) > 5:
-                lines.append(f"  ... and {len(licensees) - 5} more")
+    @property
+    def id(self) -> Optional[int]:
+        """Get the primary ID of this entity."""
+        id_cols = self.find_id_columns(pd.DataFrame([self._data]))
+        if id_cols:
+            return int(self._data.get(id_cols[0], 0))
+        return None
 
-        lines.append("")
-        lines.append("Explore: .licensees  .fields  .discoveries  .wells")
-        lines.append("         .ownership_history  .phase_history  .work_obligations")
-        return '\n'.join(lines)
+    @property
+    def table_name(self) -> str:
+        """The source table name."""
+        return self._table_name
+
+    def related(self, table_name: str) -> pd.DataFrame:
+        """
+        Get related rows from another table.
+
+        Finds the best matching ID column between this entity's data and the
+        target table, then filters the target table to matching rows.
+
+        Uses intelligent ID column matching:
+        - Prioritizes the ID column that best matches the target table name
+        - e.g., for 'field' table, prefers 'fldNpdidField' over 'cmpNpdidCompany'
+
+        Args:
+            table_name: Name of the table to query
+
+        Returns:
+            DataFrame with matching rows from the target table
+
+        Example:
+            >>> reserves = fp.field_reserves(43506)
+            >>> field_df = reserves.related('field')
+        """
+        target_df = self._db.get_or_none(table_name)
+        if target_df is None:
+            return pd.DataFrame()
+
+        # Find ID columns in both
+        my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
+        target_id_cols = self.find_id_columns(target_df)
+
+        # Find common ID columns
+        common = self.find_common_id_columns(my_id_cols, target_id_cols)
+
+        if not common:
+            return pd.DataFrame()
+
+        # Prioritize the ID column that best matches the target table name
+        best_match = None
+        table_lower = table_name.lower()
+
+        # Map table names to their primary ID patterns
+        table_patterns = {
+            'field': 'NpdidField',
+            'discovery': 'NpdidDiscovery',
+            'wellbore': 'NpdidWellbore',
+            'licence': 'NpdidLicence',
+            'company': 'NpdidCompany',
+            'facility': 'NpdidFacility',
+        }
+
+        # Find the primary pattern for this table
+        primary_pattern = None
+        for prefix, pattern in table_patterns.items():
+            if table_lower.startswith(prefix):
+                primary_pattern = pattern
+                break
+
+        # Look for a match using the primary pattern first
+        if primary_pattern:
+            for my_col, target_col in common:
+                if primary_pattern in my_col and primary_pattern in target_col:
+                    best_match = (my_col, target_col)
+                    break
+
+        # If no primary match found, use the first available
+        if best_match is None:
+            best_match = common[0]
+
+        # Filter using only the best matching ID column
+        my_col, target_col = best_match
+        my_value = self._data.get(my_col)
+        if pd.notna(my_value):
+            return target_df[target_df[target_col] == my_value]
+
+        return pd.DataFrame()
+
+    def _get_primary_id_pattern(self) -> Optional[str]:
+        """
+        Determine the primary ID pattern for this entity.
+
+        Returns the ID pattern that represents this entity's own identity.
+        """
+        my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
+        if not my_id_cols:
+            return None
+
+        table_patterns = {
+            'field': 'NpdidField',
+            'discovery': 'NpdidDiscovery',
+            'wellbore': 'NpdidWellbore',
+            'licence': 'NpdidLicence',
+            'company': 'NpdidCompany',
+            'facility': 'NpdidFacility',
+        }
+
+        # Check if table name starts with known prefix
+        for prefix, pattern in table_patterns.items():
+            if self._table_name.lower().startswith(prefix):
+                for col in my_id_cols:
+                    if pattern in col:
+                        return pattern
+                break
+
+        # Fallback: use the pattern from the first ID column
+        if my_id_cols:
+            for pattern in ['NpdidField', 'NpdidDiscovery', 'NpdidWellbore',
+                            'NpdidLicence', 'NpdidCompany', 'NpdidFacility']:
+                if pattern in my_id_cols[0]:
+                    return pattern
+
+        return None
+
+    @property
+    def connections(self) -> Dict[str, List[str]]:
+        """
+        Get lists of incoming and outgoing table connections.
+
+        Returns a dict with:
+        - 'incoming': Tables that reference this entity (have matching ID column)
+        - 'outgoing': Tables this entity references (via foreign keys)
+
+        Example:
+            >>> reserves = fp.field_reserves(43506)
+            >>> reserves.connections
+            {'incoming': [...], 'outgoing': ['field', 'company', ...]}
+        """
+        incoming = []
+        outgoing = []
+
+        my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
+        primary_pattern = self._get_primary_id_pattern()
+
+        all_tables = self._db.list_datasets()
+
+        for table_name in all_tables:
+            if table_name.startswith('_'):
+                continue
+
+            target_df = self._db.get_or_none(table_name)
+            if target_df is None or target_df.empty:
+                continue
+
+            target_id_cols = self.find_id_columns(target_df)
+            common = self.find_common_id_columns(my_id_cols, target_id_cols)
+
+            if not common:
+                continue
+
+            for my_col, _ in common:
+                if primary_pattern and primary_pattern in my_col:
+                    if table_name not in incoming:
+                        incoming.append(table_name)
+                else:
+                    if table_name not in outgoing:
+                        outgoing.append(table_name)
+
+        return {
+            'incoming': sorted(incoming),
+            'outgoing': sorted(outgoing)
+        }
+
+    @property
+    def full_connections(self) -> Dict[str, Dict[str, pd.DataFrame]]:
+        """
+        Get filtered DataFrames for all incoming and outgoing connections.
+
+        Returns a dict with:
+        - 'incoming': Dict of {table_name: filtered_DataFrame}
+        - 'outgoing': Dict of {table_name: filtered_DataFrame}
+
+        Example:
+            >>> reserves = fp.field_reserves(43506)
+            >>> conns = reserves.full_connections
+            >>> conns['outgoing']['field']  # DataFrame with the field
+        """
+        incoming = {}
+        outgoing = {}
+
+        my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
+        primary_pattern = self._get_primary_id_pattern()
+
+        all_tables = self._db.list_datasets()
+
+        for table_name in all_tables:
+            if table_name.startswith('_'):
+                continue
+
+            target_df = self._db.get_or_none(table_name)
+            if target_df is None or target_df.empty:
+                continue
+
+            target_id_cols = self.find_id_columns(target_df)
+            common = self.find_common_id_columns(my_id_cols, target_id_cols)
+
+            if not common:
+                continue
+
+            related_df = self.related(table_name)
+            if related_df.empty:
+                continue
+
+            is_incoming = False
+            for my_col, _ in common:
+                if primary_pattern and primary_pattern in my_col:
+                    is_incoming = True
+                    break
+
+            if is_incoming:
+                incoming[table_name] = related_df
+            else:
+                outgoing[table_name] = related_df
+
+        return {
+            'incoming': incoming,
+            'outgoing': outgoing
+        }
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Allow attribute access to columns and related tables.
+
+        First checks for column names in the entity data.
+        If not found, checks if 'name' is a table in the database
+        and returns related rows as a DataFrame.
+        """
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+        # First try column lookup
+        if name in self._data.index:
+            return self._data[name]
+
+        # Try case-insensitive column match
+        for col in self._data.index:
+            if col.lower() == name.lower():
+                return self._data[col]
+
+        # Try related table lookup
+        if self._db.has_dataset(name):
+            return self.related(name)
+
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return self._data.to_dict()
+
+    def __repr__(self) -> str:
+        return f"Entity(table='{self._table_name}', id={self.id})"
+
+    def __str__(self) -> str:
+        """Display the entity data."""
+        lines = [
+            f"\n{self._table_name.upper().replace('_', ' ')}",
+            "=" * 50,
+        ]
+
+        # Show all columns
+        for col, value in self._data.items():
+            if pd.notna(value):
+                # Format the column name nicely
+                display_name = col
+                if len(display_name) > 30:
+                    display_name = display_name[:27] + "..."
+                lines.append(f"{display_name:<32} {value}")
+
+        return "\n".join(lines)
+
+
+# =============================================================================
+# Additional Entity Classes
+# =============================================================================
+
+class Facility(RelatedTableMixin):
+    """
+    Represents a facility (platform, FPSO, subsea installation) on the NCS.
+
+    Example:
+        >>> fp = Factpages()
+        >>> troll_a = fp.facility("TROLL A")
+        >>> print(troll_a.kind)  # Platform type
+        >>> print(troll_a.field_name)  # Associated field
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('fclNpdidFacility', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('fclName', '')
+
+    @property
+    def kind(self) -> str:
+        """Facility kind (FIXED, FLOATING, SUBSEA, etc.)."""
+        return self._data.get('fclKind', '')
+
+    @property
+    def functions(self) -> str:
+        """Facility functions (WELLHEAD, PROCESSING, etc.)."""
+        return self._data.get('fclFunctions', '')
+
+    @property
+    def phase(self) -> str:
+        """Current phase (IN SERVICE, REMOVED, etc.)."""
+        return self._data.get('fclPhase', '')
+
+    @property
+    def status(self) -> str:
+        """Current status."""
+        return self._data.get('fclStatus', '')
+
+    @property
+    def water_depth(self) -> Optional[float]:
+        """Water depth in meters."""
+        depth = self._data.get('fclWaterDepth')
+        return float(depth) if pd.notna(depth) else None
+
+    @property
+    def field_name(self) -> str:
+        """Associated field name."""
+        return self._data.get('fldName', '')
+
+    @property
+    def startup_date(self) -> Optional[str]:
+        """Startup date."""
+        date = self._data.get('fclStartupDate')
+        return str(date)[:10] if pd.notna(date) else None
+
+    @property
+    def geometry(self) -> Optional[dict]:
+        """Facility geometry as GeoJSON."""
+        import json
+        geom_str = self._data.get('_geometry')
+        if geom_str and isinstance(geom_str, str):
+            return json.loads(geom_str)
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"Facility('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "facility")
+
+
+class Pipeline(RelatedTableMixin):
+    """
+    Represents a pipeline on the NCS.
+
+    Example:
+        >>> fp = Factpages()
+        >>> pipe = fp.pipeline("STATPIPE")
+        >>> print(pipe.medium)
+        >>> print(pipe.length)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('pipNpdidPipeline', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('pipName', '')
+
+    @property
+    def medium(self) -> str:
+        """What the pipeline carries (GAS, OIL, WATER, etc.)."""
+        return self._data.get('pipMedium', '')
+
+    @property
+    def dimension(self) -> Optional[float]:
+        """Pipeline diameter in inches."""
+        dim = self._data.get('pipDimension')
+        return float(dim) if pd.notna(dim) else None
+
+    @property
+    def status(self) -> str:
+        """Current status."""
+        return self._data.get('pipCurrentPhase', '')
+
+    @property
+    def from_facility(self) -> str:
+        """Starting facility name."""
+        return self._data.get('pipFromFacility', '')
+
+    @property
+    def to_facility(self) -> str:
+        """Ending facility name."""
+        return self._data.get('pipToFacility', '')
+
+    @property
+    def operator(self) -> str:
+        """Operator company."""
+        return self._data.get('cmpLongName', '')
+
+    @property
+    def main_area(self) -> str:
+        """Main area."""
+        return self._data.get('pipMainArea', '')
+
+    @property
+    def geometry(self) -> Optional[dict]:
+        """Pipeline geometry as GeoJSON."""
+        import json
+        geom_str = self._data.get('_geometry')
+        if geom_str and isinstance(geom_str, str):
+            return json.loads(geom_str)
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"Pipeline('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "pipeline")
+
+
+class Play(RelatedTableMixin):
+    """
+    Represents a geological play (prospective hydrocarbon fairway).
+
+    Example:
+        >>> fp = Factpages()
+        >>> play = fp.play("UPPER JURASSIC TROLL/DRAUPNE PLAY")
+        >>> print(play.main_area)
+        >>> print(play.status)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('plyNpdidPlay', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('plyName', '')
+
+    @property
+    def status(self) -> str:
+        """Play status (PUBLIC, CONFIDENTIAL, etc.)."""
+        return self._data.get('plyStatus', '')
+
+    @property
+    def main_area(self) -> str:
+        """Main area."""
+        return self._data.get('plyMainArea', '')
+
+    @property
+    def geometry(self) -> Optional[dict]:
+        """Play geometry as GeoJSON."""
+        import json
+        geom_str = self._data.get('_geometry')
+        if geom_str and isinstance(geom_str, str):
+            return json.loads(geom_str)
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"Play('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "play")
+
+
+class Block(RelatedTableMixin):
+    """
+    Represents an administrative block on the NCS.
+
+    Blocks are the basic unit of licensing on the continental shelf.
+
+    Example:
+        >>> fp = Factpages()
+        >>> block = fp.block("34/10")
+        >>> print(block.quadrant)
+        >>> print(block.main_area)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('blkNpdidBlock', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('blkName', '')
+
+    @property
+    def quadrant(self) -> str:
+        """Parent quadrant."""
+        return self._data.get('quaName', '')
+
+    @property
+    def main_area(self) -> str:
+        """Main area (NORTH SEA, NORWEGIAN SEA, BARENTS SEA)."""
+        return self._data.get('blkMainArea', '')
+
+    @property
+    def status(self) -> str:
+        """Block status."""
+        return self._data.get('blkStatus', '')
+
+    @property
+    def geometry(self) -> Optional[dict]:
+        """Block geometry as GeoJSON."""
+        import json
+        geom_str = self._data.get('_geometry')
+        if geom_str and isinstance(geom_str, str):
+            return json.loads(geom_str)
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"Block('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "block")
+
+
+class Quadrant(RelatedTableMixin):
+    """
+    Represents an administrative quadrant on the NCS.
+
+    Quadrants are large areas that contain multiple blocks.
+
+    Example:
+        >>> fp = Factpages()
+        >>> quad = fp.quadrant("34")
+        >>> print(quad.main_area)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('quaNpdidQuadrant', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('quaName', '')
+
+    @property
+    def main_area(self) -> str:
+        """Main area."""
+        return self._data.get('quaMainArea', '')
+
+    @property
+    def geometry(self) -> Optional[dict]:
+        """Quadrant geometry as GeoJSON."""
+        import json
+        geom_str = self._data.get('_geometry')
+        if geom_str and isinstance(geom_str, str):
+            return json.loads(geom_str)
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"Quadrant('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "quadrant")
+
+
+class TUF(RelatedTableMixin):
+    """
+    Represents a TUF (Transport og Utnyttelsesanlegg på Fastlandet).
+
+    TUFs are onshore facilities for transport and utilization of petroleum.
+
+    Example:
+        >>> fp = Factpages()
+        >>> tuf = fp.tuf("KOLLSNES")
+        >>> print(tuf.kind)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('tufNpdidTuf', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('tufName', '')
+
+    @property
+    def kind(self) -> str:
+        """TUF kind/type."""
+        return self._data.get('tufKind', '')
+
+    @property
+    def status(self) -> str:
+        """Current status."""
+        return self._data.get('tufStatus', '')
+
+    @property
+    def startup_date(self) -> Optional[str]:
+        """Startup date."""
+        date = self._data.get('tufStartupDate')
+        return str(date)[:10] if pd.notna(date) else None
+
+    @property
+    def operators(self) -> EntityDataFrame:
+        """TUF operators history."""
+        operators = self._db.get_or_none('tuf_operator_hst')
+        if operators is None:
+            return EntityDataFrame(entity_type="TUF Operators", field_name=self.name)
+        filtered = operators[operators['tufNpdidTuf'] == self.id]
+        return EntityDataFrame(filtered, entity_type="TUF Operators", field_name=self.name)
+
+    @property
+    def owners(self) -> EntityDataFrame:
+        """TUF owners history."""
+        owners = self._db.get_or_none('tuf_owner_hst')
+        if owners is None:
+            return EntityDataFrame(entity_type="TUF Owners", field_name=self.name)
+        filtered = owners[owners['tufNpdidTuf'] == self.id]
+        return EntityDataFrame(filtered, entity_type="TUF Owners", field_name=self.name)
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"TUF('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "tuf")
+
+
+class Seismic(RelatedTableMixin):
+    """
+    Represents a seismic acquisition survey.
+
+    Example:
+        >>> fp = Factpages()
+        >>> survey = fp.seismic("NPD-1901")
+        >>> print(survey.status)
+        >>> print(survey.area)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('seisNpdidSurvey', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('seisSurveyName', '')
+
+    @property
+    def status(self) -> str:
+        """Survey status."""
+        return self._data.get('seisStatus', '')
+
+    @property
+    def survey_type(self) -> str:
+        """Type of survey (2D, 3D, 4D, etc.)."""
+        return self._data.get('seisSurveyTypeMain', '')
+
+    @property
+    def main_area(self) -> str:
+        """Main area."""
+        return self._data.get('seisMainArea', '')
+
+    @property
+    def company(self) -> str:
+        """Company conducting the survey."""
+        return self._data.get('cmpLongName', '')
+
+    @property
+    def start_date(self) -> Optional[str]:
+        """Survey start date."""
+        date = self._data.get('seisDateStarting')
+        return str(date)[:10] if pd.notna(date) else None
+
+    @property
+    def end_date(self) -> Optional[str]:
+        """Survey end date."""
+        date = self._data.get('seisDateFinalized')
+        return str(date)[:10] if pd.notna(date) else None
+
+    @property
+    def planned_total_km(self) -> Optional[float]:
+        """Planned total kilometers."""
+        km = self._data.get('seisPlannedTotalLengthKm')
+        return float(km) if pd.notna(km) else None
+
+    @property
+    def geometry(self) -> Optional[dict]:
+        """Survey geometry as GeoJSON."""
+        import json
+        geom_str = self._data.get('_geometry')
+        if geom_str and isinstance(geom_str, str):
+            return json.loads(geom_str)
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"Seismic('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "seismic")
+
+
+class Stratigraphy(RelatedTableMixin):
+    """
+    Represents a stratigraphic unit (formation).
+
+    Example:
+        >>> fp = Factpages()
+        >>> strat = fp.stratigraphy("DRAUPNE")
+        >>> print(strat.level)
+        >>> print(strat.type)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        # Try lithostratigraphy ID first
+        val = self._data.get('lsuNpdidLithoStrat')
+        if pd.notna(val):
+            return int(val)
+        # Fall back to chronostratigraphy
+        val = self._data.get('strNpdidChronoStrat')
+        return int(val) if pd.notna(val) else 0
+
+    @property
+    def name(self) -> str:
+        return self._data.get('lsuName', '') or self._data.get('strName', '')
+
+    @property
+    def level(self) -> str:
+        """Stratigraphic level (GROUP, FORMATION, MEMBER, etc.)."""
+        return self._data.get('lsuLevel', '') or self._data.get('strLevel', '')
+
+    @property
+    def strat_type(self) -> str:
+        """Stratigraphy type (LITHO or CHRONO)."""
+        if pd.notna(self._data.get('lsuNpdidLithoStrat')):
+            return 'LITHO'
+        return 'CHRONO'
+
+    @property
+    def parent(self) -> str:
+        """Parent unit name."""
+        return self._data.get('lsuParentName', '') or self._data.get('strParentName', '')
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"Stratigraphy('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "stratigraphy")
+
+
+class BusinessArrangement(RelatedTableMixin):
+    """
+    Represents a Business Arrangement Area (unitization agreement).
+
+    Business arrangements govern shared resources across license boundaries.
+
+    Example:
+        >>> fp = Factpages()
+        >>> ba = fp.business_arrangement("TROLL UNIT")
+        >>> print(ba.status)
+        >>> print(ba.licensees)
+    """
+
+    def __init__(self, data: pd.Series, db: "Database"):
+        self._data = data
+        self._db = db
+
+    @property
+    def id(self) -> int:
+        return int(self._data.get('baaNpdidBsnsArrArea', 0))
+
+    @property
+    def name(self) -> str:
+        return self._data.get('baaName', '')
+
+    @property
+    def status(self) -> str:
+        """Current status."""
+        return self._data.get('baaStatus', '')
+
+    @property
+    def kind(self) -> str:
+        """Arrangement kind/type."""
+        return self._data.get('baaKind', '')
+
+    @property
+    def date_approved(self) -> Optional[str]:
+        """Date approved."""
+        date = self._data.get('baaDateApproved')
+        return str(date)[:10] if pd.notna(date) else None
+
+    @property
+    def operator(self) -> str:
+        """Current operator."""
+        return self._data.get('cmpLongName', '')
+
+    @property
+    def licensees(self) -> EntityDataFrame:
+        """Business arrangement licensees."""
+        licensees = self._db.get_or_none('business_arrangement_licensee_hst')
+        if licensees is None:
+            return EntityDataFrame(entity_type="BA Licensees", field_name=self.name)
+        filtered = licensees[licensees['baaNpdidBsnsArrArea'] == self.id]
+        return EntityDataFrame(filtered, entity_type="BA Licensees", field_name=self.name)
+
+    @property
+    def geometry(self) -> Optional[dict]:
+        """Business arrangement geometry as GeoJSON."""
+        import json
+        geom_str = self._data.get('_geometry')
+        if geom_str and isinstance(geom_str, str):
+            return json.loads(geom_str)
+        return None
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith('_'):
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+        result = self._lookup_related_table(name)
+        if result is not None:
+            return result
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
+
+    def __repr__(self) -> str:
+        return f"BusinessArrangement('{self.name}')"
+
+    def __str__(self) -> str:
+        from .display import render_entity
+        return render_entity(self, "business_arrangement")
