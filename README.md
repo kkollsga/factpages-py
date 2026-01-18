@@ -113,13 +113,39 @@ print(f"Missing: {report['missing_count']}")
 
 ## Entity Access
 
-The library provides 14 entity types with rich object-oriented access:
+The library provides 14 entity types with rich object-oriented access.
+
+### Entity Accessor Methods
+
+Each entity type has an accessor with these methods:
+
+```python
+# Get entity by name or ID
+troll = fp.field("troll")           # By name (case-insensitive)
+troll = fp.field(43506)             # By npdid
+
+# Get random entity (no arguments)
+random_field = fp.field()           # Returns a random field
+
+# List all entity names
+fp.field.list()                     # ['AASTA HANSTEEN', 'ALBUSKJELL', ...]
+
+# List all entity IDs
+fp.field.ids()                      # [43437, 43444, 43451, ...]
+
+# Count entities
+fp.field.count()                    # 141
+
+# Get all as DataFrame
+fp.field.all()                      # DataFrame of all fields
+```
 
 ### Fields
 
 ```python
 troll = fp.field("troll")           # By name (case-insensitive)
 troll = fp.field(43506)             # By npdid
+troll = fp.field()                  # Random field
 
 print(troll)                        # Formatted display
 print(troll.name)                   # TROLL
@@ -132,27 +158,23 @@ print(troll.discovery_year)         # 1979
 ### Discoveries
 
 ```python
-sverdrup = fp.discovery("johan sverdrup")
-sverdrup = fp.discovery(28851043)
+sverdrup = fp.discovery("johan sverdrup")  # By name
+sverdrup = fp.discovery(28851043)          # By ID
+sverdrup = fp.discovery()                  # Random
 
-print(sverdrup)
-print(sverdrup.name)
-print(sverdrup.status)
-print(sverdrup.discovery_year)
+fp.discovery.list()                        # All discovery names
+fp.discovery.count()                       # 638
 ```
 
 ### Wellbores
 
 ```python
-well = fp.well("31/2-1")          # By name
-well = fp.wellbore("31/2-1")      # Alias for well()
-well = fp.well(1234567)           # By npdid
+well = fp.wellbore("31/2-1")      # By name
+well = fp.wellbore(1234567)       # By npdid
+well = fp.wellbore()              # Random wellbore
 
-print(well)
-print(well.name)
-print(well.total_depth)
-print(well.purpose)
-print(well.status)
+fp.wellbore.list()                # All wellbore names
+fp.wellbore.count()               # 9731
 ```
 
 ### Facilities
@@ -175,13 +197,13 @@ print(pipe.from_facility)
 print(pipe.to_facility)
 ```
 
-### Licenses
+### Licences
 
 ```python
-license = fp.license("PL001")
-print(license)
-print(license.status)
-print(license.granted_date)
+licence = fp.licence("PL001")
+print(licence)
+print(licence.status)
+print(licence.granted_date)
 ```
 
 ### Companies
@@ -195,27 +217,33 @@ print(equinor.org_number)
 
 ### Additional Entity Types
 
+All entity types support the same accessor methods:
+
 ```python
 # Plays (geological)
-play = fp.play("UPPER JURASSIC")
+fp.play("UPPER JURASSIC")         # By name
+fp.play()                         # Random
+fp.play.list()                    # All names
+fp.play.count()                   # 71
 
 # Blocks
-block = fp.block("34/10")
+fp.block("34/10")                 # By name
+fp.block.count()                  # Number of blocks
 
 # Quadrants
-quad = fp.quadrant("34")
+fp.quadrant("34")                 # By name
 
 # Onshore facilities (TUF)
-tuf = fp.tuf("KOLLSNES")
+fp.tuf("KOLLSNES")                # By name
 
 # Seismic surveys
-survey = fp.seismic("NPD-1901")
+fp.seismic("NPD-1901")            # By name
 
 # Stratigraphy
-formation = fp.stratigraphy("DRAUPNE")
+fp.stratigraphy("DRAUPNE")        # By name
 
 # Business arrangements
-ba = fp.business_arrangement("TROLL UNIT")
+fp.business_arrangement("TROLL UNIT")
 ```
 
 ---
@@ -272,16 +300,16 @@ troll = fp.field("troll")
 
 # Get list of connected tables
 connections = troll.connections
-print(connections['incoming'])  # Tables that reference this field
+print(connections['referencing_me'])  # Tables that have fldNpdidField
 # ['field_reserves', 'field_licensee_hst', 'field_operator_hst', ...]
 
-print(connections['outgoing'])  # Tables this field references
-# ['company', 'licence', ...]
+print(connections['i_reference'])  # Base tables this field references via foreign keys
+# ['company', 'wellbore']
 
 # Get actual filtered data for all connections
 full_conns = troll.full_connections
-reserves_df = full_conns['incoming']['field_reserves']
-operator_df = full_conns['outgoing']['company']
+reserves_df = full_conns['referencing_me']['field_reserves']
+operator_df = full_conns['i_reference']['company']
 ```
 
 ### Partners and Ownership
@@ -340,7 +368,7 @@ discoveries = fp.discoveries()
 discoveries_2023 = fp.discoveries(year=2023)
 
 # Get all wellbores
-wells = fp.wells()
+wellbores = fp.wellbores()
 ```
 
 ### List Available Tables
@@ -542,9 +570,9 @@ import pandas as pd
 fp = Factpages()
 fp.sync('wellbore')
 
-wells = fp.wells()
-print(f"Average depth: {wells['wlbTotalDepth'].mean():.0f}m")
-print(f"Deepest well: {wells['wlbTotalDepth'].max():.0f}m")
+wellbores = fp.wellbores()
+print(f"Average depth: {wellbores['wlbTotalDepth'].mean():.0f}m")
+print(f"Deepest wellbore: {wellbores['wlbTotalDepth'].max():.0f}m")
 ```
 
 ### Export Field-Company Relationships

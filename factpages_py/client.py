@@ -20,6 +20,7 @@ Example (graph building):
     >>> nodes = fp.graph.nodes('field')
     >>> connections = fp.graph.connections('discovery', 'field')
 """
+from __future__ import annotations
 
 import hashlib
 import json
@@ -45,6 +46,170 @@ from .entity_config import CustomEntity
 from .graph import GraphEndpoints
 from .supplementary import SupplementaryData
 from .schema import SchemaRegistry
+
+
+# =============================================================================
+# Entity Accessor
+# =============================================================================
+
+class EntityAccessor:
+    """
+    Provides convenient access to entities with list(), ids(), and random selection.
+
+    Example:
+        >>> fp.field("troll")      # Get by name
+        >>> fp.field(43506)        # Get by ID
+        >>> fp.field()             # Get random field
+        >>> fp.field.list()        # List all field names
+        >>> fp.field.ids()         # List all field IDs
+        >>> fp.field.count()       # Count of fields
+        >>> fp.field.all()         # DataFrame of all fields
+    """
+
+    def __init__(
+        self,
+        client: "Factpages",
+        dataset: str,
+        entity_class: type,
+        id_column: str,
+        name_column: str,
+        alt_datasets: Optional[list[str]] = None,
+    ):
+        self._client = client
+        self._dataset = dataset
+        self._entity_class = entity_class
+        self._id_column = id_column
+        self._name_column = name_column
+        self._alt_datasets = alt_datasets or []
+
+    def _get_df(self) -> Optional[pd.DataFrame]:
+        """Get the entity DataFrame."""
+        df = self._client._ensure_dataset(self._dataset)
+        if df is None or df.empty:
+            # Try alternative datasets
+            for alt in self._alt_datasets:
+                df = self._client._ensure_dataset(alt)
+                if df is not None and not df.empty:
+                    return df
+        return df
+
+    def __call__(self, identifier: Optional[Union[str, int]] = None):
+        """
+        Get entity by name, ID, or random if no argument provided.
+
+        Args:
+            identifier: Entity name (case-insensitive) or npdid (int).
+                       If None, returns a random entity.
+
+        Returns:
+            Entity instance
+
+        Example:
+            >>> fp.field("troll")   # By name
+            >>> fp.field(43506)     # By ID
+            >>> fp.field()          # Random field
+        """
+        import random
+
+        df = self._get_df()
+        if df is None or df.empty:
+            raise ValueError(
+                f"{self._entity_class.__name__} data not available. Run sync() first."
+            )
+
+        # If no identifier, return random entity
+        if identifier is None:
+            idx = random.randint(0, len(df) - 1)
+            return self._entity_class(df.iloc[idx], self._client.db)
+
+        # Search by ID
+        if isinstance(identifier, int):
+            match = df[df[self._id_column] == identifier]
+            if match.empty:
+                raise ValueError(
+                    f"{self._entity_class.__name__} with npdid {identifier} not found."
+                )
+            return self._entity_class(match.iloc[0], self._client.db)
+
+        # Search by name (case-insensitive)
+        name_upper = identifier.upper()
+        match = df[df[self._name_column].str.upper() == name_upper]
+
+        if match.empty:
+            # Try partial match
+            match = df[df[self._name_column].str.upper().str.contains(name_upper, na=False)]
+
+        if match.empty:
+            raise ValueError(f"{self._entity_class.__name__} '{identifier}' not found.")
+
+        return self._entity_class(match.iloc[0], self._client.db)
+
+    def list(self) -> list[str]:
+        """
+        List all entity names.
+
+        Returns:
+            Sorted list of entity names
+
+        Example:
+            >>> fp.field.list()
+            ['ALBUSKJELL', 'ALVHEIM', 'BALDER', ...]
+        """
+        df = self._get_df()
+        if df is None or df.empty:
+            return []
+        return sorted(df[self._name_column].dropna().unique().tolist())
+
+    def ids(self) -> list[int]:
+        """
+        List all entity IDs.
+
+        Returns:
+            List of entity npdids
+
+        Example:
+            >>> fp.field.ids()
+            [43437, 43506, 43548, ...]
+        """
+        df = self._get_df()
+        if df is None or df.empty:
+            return []
+        return df[self._id_column].dropna().astype(int).tolist()
+
+    def count(self) -> int:
+        """
+        Count of entities.
+
+        Returns:
+            Number of entities
+
+        Example:
+            >>> fp.field.count()
+            141
+        """
+        df = self._get_df()
+        if df is None or df.empty:
+            return 0
+        return len(df)
+
+    def all(self) -> pd.DataFrame:
+        """
+        Get all entities as DataFrame.
+
+        Returns:
+            DataFrame of all entities
+
+        Example:
+            >>> fp.field.all()
+        """
+        df = self._get_df()
+        if df is None:
+            return pd.DataFrame()
+        return df
+
+    def __repr__(self) -> str:
+        count = self.count()
+        return f"<{self._entity_class.__name__}Accessor: {count} entities>"
 
 
 # =============================================================================
@@ -271,6 +436,53 @@ class Factpages:
         # Supplementary data manager
         self.supplementary = SupplementaryData(self.db)
 
+        # Entity accessors - provide list(), ids(), count(), random access
+        # Names match table names for consistency
+        self.field = EntityAccessor(
+            self, 'field', Field, 'fldNpdidField', 'fldName'
+        )
+        self.discovery = EntityAccessor(
+            self, 'discovery', Discovery, 'dscNpdidDiscovery', 'dscName'
+        )
+        self.wellbore = EntityAccessor(
+            self, 'wellbore', Wellbore, 'wlbNpdidWellbore', 'wlbWellboreName'
+        )
+        self.company = EntityAccessor(
+            self, 'company', Company, 'cmpNpdidCompany', 'cmpLongName'
+        )
+        self.licence = EntityAccessor(
+            self, 'licence', License, 'prlNpdidLicence', 'prlName'
+        )
+        self.facility = EntityAccessor(
+            self, 'facility', Facility, 'fclNpdidFacility', 'fclName'
+        )
+        self.pipeline = EntityAccessor(
+            self, 'pipeline', Pipeline, 'pipNpdidPipeline', 'pipName'
+        )
+        self.play = EntityAccessor(
+            self, 'play', Play, 'plyNpdidPlay', 'plyName'
+        )
+        self.block = EntityAccessor(
+            self, 'block', Block, 'blkNpdidBlock', 'blkName'
+        )
+        self.quadrant = EntityAccessor(
+            self, 'quadrant', Quadrant, 'quaNpdidQuadrant', 'quaName'
+        )
+        self.tuf = EntityAccessor(
+            self, 'tuf', TUF, 'tufNpdidTuf', 'tufName'
+        )
+        self.seismic = EntityAccessor(
+            self, 'seismic_acquisition', Seismic, 'seisNpdidSurvey', 'seisSurveyName'
+        )
+        self.stratigraphy = EntityAccessor(
+            self, 'strat_litho', Stratigraphy, 'lsuNpdidLithoStrat', 'lsuName',
+            alt_datasets=['strat_chrono']
+        )
+        self.business_arrangement = EntityAccessor(
+            self, 'business_arrangement_area', BusinessArrangement,
+            'baaNpdidBsnsArrArea', 'baaName'
+        )
+
     def _create_session(self) -> requests.Session:
         """
         Create an HTTP session with connection pooling and retry logic.
@@ -345,482 +557,19 @@ class Factpages:
     # =========================================================================
     # Entity Access (User-Friendly API)
     # =========================================================================
-
-    def field(self, identifier: Union[str, int]) -> Field:
-        """
-        Get a Field entity by name or ID.
-
-        Automatically loads all field_* tables (reserves, licensees, etc.)
-        when auto_sync is enabled.
-
-        Args:
-            identifier: Field name (case-insensitive) or npdid (int)
-
-        Returns:
-            Field object with properties and methods
-
-        Example:
-            >>> troll = fp.field("troll")  # By name
-            >>> troll = fp.field(43506)    # By npdid
-            >>> print(troll.operator)
-            >>> print(troll.reserves)
-        """
-        fields = self._ensure_dataset('field')
-        if fields is None:
-            raise ValueError("Field data not available. Run sync() first.")
-
-        # Auto-load related tables (field_reserves, field_licensee_hst, etc.)
-        self._ensure_related_datasets('field')
-
-        if isinstance(identifier, int):
-            # Search by npdid
-            match = fields[fields['fldNpdidField'] == identifier]
-            if match.empty:
-                raise ValueError(f"Field with npdid {identifier} not found.")
-        else:
-            # Case-insensitive name search
-            name_upper = identifier.upper()
-            match = fields[fields['fldName'].str.upper() == name_upper]
-
-            if match.empty:
-                # Try partial match
-                match = fields[fields['fldName'].str.upper().str.contains(name_upper, na=False)]
-
-            if match.empty:
-                raise ValueError(f"Field '{identifier}' not found.")
-
-        return Field(match.iloc[0], self.db)
-
-    def discovery(self, identifier: Union[str, int]) -> Discovery:
-        """
-        Get a Discovery entity by name or ID.
-
-        Automatically loads all discovery_* tables when auto_sync is enabled.
-
-        Args:
-            identifier: Discovery name (case-insensitive) or npdid (int)
-
-        Returns:
-            Discovery object
-
-        Example:
-            >>> johan = fp.discovery("johan sverdrup")  # By name
-            >>> johan = fp.discovery(28851043)         # By npdid
-        """
-        discoveries = self._ensure_dataset('discovery')
-        if discoveries is None:
-            raise ValueError("Discovery data not available. Run sync() first.")
-
-        # Auto-load related tables (discovery_reserves, discovery_operator_hst, etc.)
-        self._ensure_related_datasets('discovery')
-
-        if isinstance(identifier, int):
-            # Search by npdid
-            match = discoveries[discoveries['dscNpdidDiscovery'] == identifier]
-            if match.empty:
-                raise ValueError(f"Discovery with npdid {identifier} not found.")
-        else:
-            # Case-insensitive name search
-            name_upper = identifier.upper()
-            match = discoveries[discoveries['dscName'].str.upper() == name_upper]
-
-            if match.empty:
-                match = discoveries[discoveries['dscName'].str.upper().str.contains(name_upper, na=False)]
-
-            if match.empty:
-                raise ValueError(f"Discovery '{identifier}' not found.")
-
-        return Discovery(match.iloc[0], self.db)
-
-    def well(self, identifier: Union[str, int]) -> Wellbore:
-        """
-        Get a Wellbore entity by name or ID.
-
-        Automatically loads all wellbore_* tables when auto_sync is enabled.
-
-        Args:
-            identifier: Wellbore name (e.g., '35/11-25') or npdid (int)
-
-        Returns:
-            Wellbore object
-
-        Example:
-            >>> well = fp.well("31/2-1")    # By name
-            >>> well = fp.well(1234567)     # By npdid
-        """
-        wellbores = self._ensure_dataset('wellbore')
-        if wellbores is None:
-            raise ValueError("Wellbore data not available. Run sync() first.")
-
-        # Auto-load related tables (wellbore_core, wellbore_dst, etc.)
-        self._ensure_related_datasets('wellbore')
-
-        if isinstance(identifier, int):
-            # Search by npdid
-            match = wellbores[wellbores['wlbNpdidWellbore'] == identifier]
-            if match.empty:
-                raise ValueError(f"Wellbore with npdid {identifier} not found.")
-        else:
-            # Name search
-            match = wellbores[wellbores['wlbWellboreName'] == identifier]
-
-            if match.empty:
-                # Try partial match
-                match = wellbores[wellbores['wlbWellboreName'].str.contains(identifier, case=False, na=False)]
-
-            if match.empty:
-                raise ValueError(f"Wellbore '{identifier}' not found.")
-
-        return Wellbore(match.iloc[0], self.db)
-
-    # Alias for well()
-    def wellbore(self, identifier: Union[str, int]) -> Wellbore:
-        """Alias for well(). See well() for documentation."""
-        return self.well(identifier)
-
-    def company(self, identifier: Union[str, int]) -> Company:
-        """
-        Get a Company entity by name or ID.
-
-        Args:
-            identifier: Company name (partial match) or npdid (int)
-
-        Returns:
-            Company object
-
-        Example:
-            >>> equinor = fp.company("equinor")  # By name
-            >>> equinor = fp.company(561234)     # By npdid
-        """
-        companies = self._ensure_dataset('company')
-        if companies is None:
-            raise ValueError("Company data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            # Search by npdid
-            match = companies[companies['cmpNpdidCompany'] == identifier]
-            if match.empty:
-                raise ValueError(f"Company with npdid {identifier} not found.")
-        else:
-            # Name search (partial match)
-            match = companies[companies['cmpLongName'].str.contains(identifier, case=False, na=False)]
-
-            if match.empty:
-                raise ValueError(f"Company matching '{identifier}' not found.")
-
-        return Company(match.iloc[0], self.db)
-
-    def license(self, identifier: Union[str, int]) -> License:
-        """
-        Get a License entity by name or ID.
-
-        Automatically loads all licence_* tables when auto_sync is enabled.
-
-        Args:
-            identifier: License name (e.g., 'PL001') or npdid (int)
-
-        Returns:
-            License object
-
-        Example:
-            >>> pl001 = fp.license("PL001")  # By name
-            >>> pl001 = fp.license(1234567)  # By npdid
-        """
-        licences = self._ensure_dataset('licence')
-        if licences is None:
-            raise ValueError("License data not available. Run sync() first.")
-
-        # Auto-load related tables (licence_licensee_hst, licence_operator_hst, etc.)
-        self._ensure_related_datasets('licence')
-
-        if isinstance(identifier, int):
-            # Search by npdid
-            match = licences[licences['prlNpdidLicence'] == identifier]
-            if match.empty:
-                raise ValueError(f"License with npdid {identifier} not found.")
-        else:
-            # Name search
-            match = licences[licences['prlName'] == identifier]
-
-            if match.empty:
-                match = licences[licences['prlName'].str.contains(identifier, case=False, na=False)]
-
-            if match.empty:
-                raise ValueError(f"License '{identifier}' not found.")
-
-        return License(match.iloc[0], self.db)
-
-    def facility(self, identifier: Union[str, int]) -> Facility:
-        """
-        Get a Facility entity by name or ID.
-
-        Args:
-            identifier: Facility name or npdid (int)
-
-        Returns:
-            Facility object
-
-        Example:
-            >>> troll_a = fp.facility("TROLL A")  # By name
-            >>> troll_a = fp.facility(1234567)    # By npdid
-        """
-        facilities = self._ensure_dataset('facility')
-        if facilities is None:
-            raise ValueError("Facility data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = facilities[facilities['fclNpdidFacility'] == identifier]
-            if match.empty:
-                raise ValueError(f"Facility with npdid {identifier} not found.")
-        else:
-            match = facilities[facilities['fclName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"Facility matching '{identifier}' not found.")
-
-        return Facility(match.iloc[0], self.db)
-
-    def pipeline(self, identifier: Union[str, int]) -> Pipeline:
-        """
-        Get a Pipeline entity by name or ID.
-
-        Args:
-            identifier: Pipeline name or npdid (int)
-
-        Returns:
-            Pipeline object
-
-        Example:
-            >>> pipe = fp.pipeline("STATPIPE")  # By name
-            >>> pipe = fp.pipeline(1234567)     # By npdid
-        """
-        pipelines = self._ensure_dataset('pipeline')
-        if pipelines is None:
-            raise ValueError("Pipeline data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = pipelines[pipelines['pipNpdidPipeline'] == identifier]
-            if match.empty:
-                raise ValueError(f"Pipeline with npdid {identifier} not found.")
-        else:
-            match = pipelines[pipelines['pipName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"Pipeline matching '{identifier}' not found.")
-
-        return Pipeline(match.iloc[0], self.db)
-
-    def play(self, identifier: Union[str, int]) -> Play:
-        """
-        Get a Play entity by name or ID.
-
-        Args:
-            identifier: Play name or npdid (int)
-
-        Returns:
-            Play object
-
-        Example:
-            >>> play = fp.play("UPPER JURASSIC")  # By name
-            >>> play = fp.play(1234567)           # By npdid
-        """
-        plays = self._ensure_dataset('play')
-        if plays is None:
-            raise ValueError("Play data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = plays[plays['plyNpdidPlay'] == identifier]
-            if match.empty:
-                raise ValueError(f"Play with npdid {identifier} not found.")
-        else:
-            match = plays[plays['plyName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"Play matching '{identifier}' not found.")
-
-        return Play(match.iloc[0], self.db)
-
-    def block(self, identifier: Union[str, int]) -> Block:
-        """
-        Get a Block entity by name or ID.
-
-        Args:
-            identifier: Block name (e.g., '34/10') or npdid (int)
-
-        Returns:
-            Block object
-
-        Example:
-            >>> block = fp.block("34/10")     # By name
-            >>> block = fp.block(1234567)     # By npdid
-        """
-        blocks = self._ensure_dataset('block')
-        if blocks is None:
-            raise ValueError("Block data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = blocks[blocks['blkNpdidBlock'] == identifier]
-            if match.empty:
-                raise ValueError(f"Block with npdid {identifier} not found.")
-        else:
-            match = blocks[blocks['blkName'] == identifier]
-            if match.empty:
-                match = blocks[blocks['blkName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"Block '{identifier}' not found.")
-
-        return Block(match.iloc[0], self.db)
-
-    def quadrant(self, identifier: Union[str, int]) -> Quadrant:
-        """
-        Get a Quadrant entity by name or ID.
-
-        Args:
-            identifier: Quadrant name (e.g., '34') or npdid (int)
-
-        Returns:
-            Quadrant object
-
-        Example:
-            >>> quad = fp.quadrant("34")      # By name
-            >>> quad = fp.quadrant(1234567)   # By npdid
-        """
-        quadrants = self._ensure_dataset('quadrant')
-        if quadrants is None:
-            raise ValueError("Quadrant data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = quadrants[quadrants['quaNpdidQuadrant'] == identifier]
-            if match.empty:
-                raise ValueError(f"Quadrant with npdid {identifier} not found.")
-        else:
-            match = quadrants[quadrants['quaName'] == identifier]
-            if match.empty:
-                match = quadrants[quadrants['quaName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"Quadrant '{identifier}' not found.")
-
-        return Quadrant(match.iloc[0], self.db)
-
-    def tuf(self, identifier: Union[str, int]) -> TUF:
-        """
-        Get a TUF (onshore facility) entity by name or ID.
-
-        Args:
-            identifier: TUF name or npdid (int)
-
-        Returns:
-            TUF object
-
-        Example:
-            >>> kollsnes = fp.tuf("KOLLSNES")  # By name
-            >>> kollsnes = fp.tuf(1234567)     # By npdid
-        """
-        tufs = self._ensure_dataset('tuf')
-        if tufs is None:
-            raise ValueError("TUF data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = tufs[tufs['tufNpdidTuf'] == identifier]
-            if match.empty:
-                raise ValueError(f"TUF with npdid {identifier} not found.")
-        else:
-            match = tufs[tufs['tufName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"TUF matching '{identifier}' not found.")
-
-        return TUF(match.iloc[0], self.db)
-
-    def seismic(self, identifier: Union[str, int]) -> Seismic:
-        """
-        Get a Seismic survey entity by name or ID.
-
-        Args:
-            identifier: Survey name or npdid (int)
-
-        Returns:
-            Seismic object
-
-        Example:
-            >>> survey = fp.seismic("NPD-1901")  # By name
-            >>> survey = fp.seismic(1234567)     # By npdid
-        """
-        surveys = self._ensure_dataset('seismic_acquisition')
-        if surveys is None:
-            raise ValueError("Seismic data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = surveys[surveys['seisNpdidSurvey'] == identifier]
-            if match.empty:
-                raise ValueError(f"Seismic survey with npdid {identifier} not found.")
-        else:
-            match = surveys[surveys['seisSurveyName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"Seismic survey matching '{identifier}' not found.")
-
-        return Seismic(match.iloc[0], self.db)
-
-    def stratigraphy(self, identifier: Union[str, int]) -> Stratigraphy:
-        """
-        Get a Stratigraphy entity by name or ID.
-
-        Args:
-            identifier: Formation name or npdid (int)
-
-        Returns:
-            Stratigraphy object
-
-        Example:
-            >>> draupne = fp.stratigraphy("DRAUPNE")  # By name
-            >>> draupne = fp.stratigraphy(1234567)    # By npdid
-        """
-        # Try lithostratigraphy first
-        litho = self._ensure_dataset('strat_litho')
-        if litho is not None and not litho.empty:
-            if isinstance(identifier, int):
-                match = litho[litho['lsuNpdidLithoStrat'] == identifier]
-            else:
-                match = litho[litho['lsuName'].str.contains(identifier, case=False, na=False)]
-            if not match.empty:
-                return Stratigraphy(match.iloc[0], self.db)
-
-        # Fall back to chronostratigraphy
-        chrono = self._ensure_dataset('strat_chrono')
-        if chrono is not None and not chrono.empty:
-            if isinstance(identifier, int):
-                match = chrono[chrono['strNpdidChronoStrat'] == identifier]
-            else:
-                match = chrono[chrono['strName'].str.contains(identifier, case=False, na=False)]
-            if not match.empty:
-                return Stratigraphy(match.iloc[0], self.db)
-
-        raise ValueError(f"Stratigraphy '{identifier}' not found.")
-
-    def business_arrangement(self, identifier: Union[str, int]) -> BusinessArrangement:
-        """
-        Get a Business Arrangement entity by name or ID.
-
-        Args:
-            identifier: Arrangement name or npdid (int)
-
-        Returns:
-            BusinessArrangement object
-
-        Example:
-            >>> ba = fp.business_arrangement("TROLL UNIT")  # By name
-            >>> ba = fp.business_arrangement(1234567)       # By npdid
-        """
-        arrangements = self._ensure_dataset('business_arrangement_area')
-        if arrangements is None:
-            raise ValueError("Business arrangement data not available. Run sync() first.")
-
-        if isinstance(identifier, int):
-            match = arrangements[arrangements['baaNpdidBsnsArrArea'] == identifier]
-            if match.empty:
-                raise ValueError(f"Business arrangement with npdid {identifier} not found.")
-        else:
-            match = arrangements[arrangements['baaName'].str.contains(identifier, case=False, na=False)]
-            if match.empty:
-                raise ValueError(f"Business arrangement matching '{identifier}' not found.")
-
-        return BusinessArrangement(match.iloc[0], self.db)
+    # Entity accessors are initialized in __init__ as EntityAccessor instances.
+    # Accessor names match table names: field, discovery, wellbore, company,
+    # licence, facility, pipeline, play, block, quadrant, tuf, seismic,
+    # stratigraphy, business_arrangement
+    #
+    # They support:
+    #   - fp.field("troll")     # Get by name
+    #   - fp.field(43506)       # Get by ID
+    #   - fp.field()            # Random entity
+    #   - fp.field.list()       # List all names
+    #   - fp.field.ids()        # List all IDs
+    #   - fp.field.count()      # Count
+    #   - fp.field.all()        # DataFrame
 
     def custom_entity(self, entity_type: str, name: str) -> CustomEntity:
         """
@@ -1653,7 +1402,7 @@ class Factpages:
 
         return df
 
-    def wells(self, status: Optional[str] = None) -> pd.DataFrame:
+    def wellbores(self, status: Optional[str] = None) -> pd.DataFrame:
         """Get all wellbores, optionally filtered by status."""
         df = self._ensure_dataset('wellbore')
         if df is None:

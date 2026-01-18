@@ -153,6 +153,33 @@ class RelatedTableMixin:
         # Find common ID columns
         common = self._find_common_id_columns(my_id_cols, target_id_cols)
 
+        # Check for information carrier pattern (generic ID type)
+        # Tables like 'profiles' use NpdidInformationCarrier + Kind column
+        info_carrier_col = None
+        for col in target_id_cols:
+            if 'NpdidInformationCarrier' in col:
+                info_carrier_col = col
+                break
+
+        if info_carrier_col and not common:
+            # Try to use information carrier as the join
+            # Map entity types to their InformationCarrierKind values
+            base_table = getattr(self, '_table_name', None) or type(self).__name__.lower()
+            entity_to_carrier = {
+                'field': ('fldNpdidField', 'FIELD'),
+                'discovery': ('dscNpdidDiscovery', 'DISCOVERY'),
+            }
+            if base_table in entity_to_carrier:
+                my_id_col, kind_value = entity_to_carrier[base_table]
+                kind_col = info_carrier_col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
+                if my_id_col in self._data.index and kind_col in target_df.columns:
+                    my_value = self._data.get(my_id_col)
+                    if pd.notna(my_value):
+                        return target_df[
+                            (target_df[info_carrier_col] == my_value) &
+                            (target_df[kind_col] == kind_value)
+                        ]
+
         if not common:
             return pd.DataFrame()
 
@@ -253,30 +280,48 @@ class RelatedTableMixin:
     @property
     def connections(self) -> Dict[str, List[str]]:
         """
-        Get lists of incoming and outgoing table connections.
+        Get lists of tables that reference this entity and tables this entity references.
 
         Returns a dict with:
-        - 'incoming': Tables that reference this entity (have matching ID column)
-        - 'outgoing': Tables this entity references (via foreign keys)
+        - 'referencing_me': Tables that have my primary ID as a foreign key
+          (e.g., field_reserves, field_licensee_hst reference field)
+        - 'i_reference': Tables whose primary entities I have foreign keys to
+          (e.g., field references company via cmpNpdidCompany)
 
         Example:
             >>> troll = fp.field("troll")
             >>> troll.connections
-            {'incoming': ['field_reserves', 'field_licensee_hst', ...],
-             'outgoing': ['company']}
+            {'referencing_me': ['field_reserves', 'field_licensee_hst', ...],
+             'i_reference': ['company', 'licence']}
         """
-        incoming = []
-        outgoing = []
+        referencing_me = []
 
-        my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
         primary_pattern = self._get_primary_id_pattern()
+        if not primary_pattern:
+            return {'referencing_me': [], 'i_reference': []}
+
+        # Get my foreign keys (ID columns that are NOT my primary)
+        my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
+        my_foreign_keys = [col for col in my_id_cols if primary_pattern not in col]
+
+        # Get the base table name for this entity
+        base_table = getattr(self, '_table_name', None) or type(self).__name__.lower()
 
         # Get all available tables
         all_tables = self._db.list_datasets()
 
+        # Map entity types to their InformationCarrierKind values
+        entity_to_carrier_kind = {
+            'field': 'FIELD',
+            'discovery': 'DISCOVERY',
+        }
+
+        # Find tables that reference me (have my primary ID)
         for table_name in all_tables:
-            # Skip internal tables
+            # Skip internal tables and own base table
             if table_name.startswith('_'):
+                continue
+            if table_name == base_table:
                 continue
 
             target_df = self._db.get_or_none(table_name)
@@ -284,87 +329,96 @@ class RelatedTableMixin:
                 continue
 
             target_id_cols = self._find_id_columns(target_df)
-            common = self._find_common_id_columns(my_id_cols, target_id_cols)
 
-            if not common:
-                continue
+            # Check if target table has MY primary ID → it references me
+            for col in target_id_cols:
+                if primary_pattern in col:
+                    if table_name not in referencing_me:
+                        referencing_me.append(table_name)
+                    break
 
-            # Classify as incoming or outgoing
-            for my_col, _ in common:
-                # Check if this is the primary ID pattern
-                if primary_pattern and primary_pattern in my_col:
-                    # This table references our primary ID -> incoming
-                    if table_name not in incoming:
-                        incoming.append(table_name)
-                else:
-                    # We reference this table via foreign key -> outgoing
-                    if table_name not in outgoing:
-                        outgoing.append(table_name)
+            # Check for information carrier pattern (generic ID type)
+            # Tables like 'profiles' use NpdidInformationCarrier + Kind column
+            if table_name not in referencing_me:
+                for col in target_id_cols:
+                    if 'NpdidInformationCarrier' in col:
+                        # Check if there's a Kind column indicating which entity types
+                        kind_col = col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
+                        if kind_col in target_df.columns:
+                            # Check if this entity's type is in the kind values
+                            my_kind = entity_to_carrier_kind.get(base_table)
+                            if my_kind and my_kind in target_df[kind_col].unique():
+                                referencing_me.append(table_name)
+                        break
+
+        # For i_reference, only include the BASE entity tables (not all tables with that ID)
+        # Map patterns to their base tables
+        pattern_to_base_table = {
+            'NpdidField': 'field',
+            'NpdidDiscovery': 'discovery',
+            'NpdidWellbore': 'wellbore',
+            'NpdidCompany': 'company',
+            'NpdidLicence': 'licence',
+            'NpdidFacility': 'facility',
+            'NpdidPipeline': 'pipeline',
+            'NpdidPlay': 'play',
+            'NpdidBlock': 'block',
+            'NpdidQuadrant': 'quadrant',
+            'NpdidTuf': 'tuf',
+            'NpdidSurvey': 'seismic_acquisition',
+            'NpdidLithoStrat': 'strat_litho',
+            'NpdidBsnsArrArea': 'business_arrangement_area',
+        }
+
+        # Find which base tables I reference via my foreign keys
+        i_reference_base = set()
+        for my_fk in my_foreign_keys:
+            for pattern, base_table in pattern_to_base_table.items():
+                if pattern in my_fk and base_table in all_tables:
+                    i_reference_base.add(base_table)
+                    break
 
         return {
-            'incoming': sorted(incoming),
-            'outgoing': sorted(outgoing)
+            'referencing_me': sorted(referencing_me),
+            'i_reference': sorted(i_reference_base)
         }
 
     @property
     def full_connections(self) -> Dict[str, Dict[str, pd.DataFrame]]:
         """
-        Get filtered DataFrames for all incoming and outgoing connections.
+        Get filtered DataFrames for all connections.
 
         Returns a dict with:
-        - 'incoming': Dict of {table_name: filtered_DataFrame} for tables that reference this entity
-        - 'outgoing': Dict of {table_name: filtered_DataFrame} for tables this entity references
+        - 'referencing_me': Dict of {table_name: filtered_DataFrame} for tables that reference this entity
+        - 'i_reference': Dict of {table_name: filtered_DataFrame} for tables this entity references
 
         Example:
             >>> troll = fp.field("troll")
             >>> conns = troll.full_connections
-            >>> conns['incoming']['field_reserves']  # DataFrame of Troll's reserves
-            >>> conns['outgoing']['company']  # DataFrame of Troll's operator
+            >>> conns['referencing_me']['field_reserves']  # DataFrame of Troll's reserves
+            >>> conns['i_reference']['company']  # DataFrame of Troll's operator
         """
-        incoming = {}
-        outgoing = {}
+        # Get connection lists first
+        conn_lists = self.connections
 
-        my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
-        primary_pattern = self._get_primary_id_pattern()
+        referencing_me = {}
+        i_reference = {}
 
-        # Get all available tables
-        all_tables = self._db.list_datasets()
-
-        for table_name in all_tables:
-            # Skip internal tables
-            if table_name.startswith('_'):
-                continue
-
-            target_df = self._db.get_or_none(table_name)
-            if target_df is None or target_df.empty:
-                continue
-
-            target_id_cols = self._find_id_columns(target_df)
-            common = self._find_common_id_columns(my_id_cols, target_id_cols)
-
-            if not common:
-                continue
-
-            # Get the related data
+        # Get data for tables that reference me
+        for table_name in conn_lists['referencing_me']:
             related_df = self.related(table_name)
-            if related_df.empty:
-                continue
+            if not related_df.empty:
+                referencing_me[table_name] = related_df
 
-            # Classify as incoming or outgoing based on primary ID pattern
-            is_incoming = False
-            for my_col, _ in common:
-                if primary_pattern and primary_pattern in my_col:
-                    is_incoming = True
-                    break
-
-            if is_incoming:
-                incoming[table_name] = related_df
-            else:
-                outgoing[table_name] = related_df
+        # Get data for tables I reference
+        for table_name in conn_lists['i_reference']:
+            related_df = self.related(table_name)
+            if not related_df.empty:
+                i_reference[table_name] = related_df
 
         return {
-            'incoming': incoming,
-            'outgoing': outgoing
+            'referencing_me': referencing_me,
+            'i_reference': i_reference
         }
 
 
@@ -786,76 +840,151 @@ class Field(RelatedTableMixin):
             'condensate_msm3': float(row.get('fldRecoverableCondensate', 0) or 0),
         }
 
+    @property
+    def remaining(self) -> dict:
+        """
+        Remaining recoverable reserves (future production forecast).
+
+        Returns:
+            Dict with 'oil_msm3', 'gas_bsm3', 'ngl_mtoe', 'condensate_msm3', 'oe_msm3'.
+            These are the remaining resources yet to be produced.
+
+        Example:
+            >>> troll = fp.field("troll")
+            >>> troll.remaining
+            {'oil_msm3': 12.5, 'gas_bsm3': 564.5, ...}
+        """
+        if self._reserves_cache is None:
+            reserves = self._db.get_or_none('field_reserves')
+            if reserves is not None:
+                self._reserves_cache = reserves[
+                    reserves['fldNpdidField'] == self.id
+                ]
+            else:
+                self._reserves_cache = pd.DataFrame()
+
+        if self._reserves_cache.empty:
+            return {}
+
+        # Get most recent estimate (by date if available)
+        if 'fldDateOffResEstDisplay' in self._reserves_cache.columns:
+            latest = self._reserves_cache.sort_values('fldDateOffResEstDisplay', ascending=False)
+        else:
+            latest = self._reserves_cache
+
+        if latest.empty:
+            return {}
+
+        row = latest.iloc[0]
+        return {
+            'oil_msm3': float(row.get('fldRemainingOil', 0) or 0),
+            'gas_bsm3': float(row.get('fldRemainingGas', 0) or 0),
+            'ngl_mtoe': float(row.get('fldRemainingNGL', 0) or 0),
+            'condensate_msm3': float(row.get('fldRemainingCondensate', 0) or 0),
+            'oe_msm3': float(row.get('fldRemainingOE', 0) or 0),
+        }
+
     # =========================================================================
     # Production Methods
     # =========================================================================
 
     def _load_production(self) -> None:
-        """Load production data into cache."""
+        """Load production data from profiles table (information carrier)."""
         if self._production_cache is None:
-            production = self._db.get_or_none('field_production_monthly')
-            if production is not None:
-                self._production_cache = production[
-                    production['fldNpdidField'] == self.id
+            profiles = self._db.get_or_none('profiles')
+            if profiles is not None:
+                # Filter by information carrier type and ID
+                self._production_cache = profiles[
+                    (profiles['prfInformationCarrierKind'] == 'FIELD') &
+                    (profiles['prfNpdidInformationCarrier'] == self.id)
                 ]
             else:
                 self._production_cache = pd.DataFrame()
 
-    def production(self, year: int, month: int) -> dict:
+    def production(self, year: Optional[int] = None, month: Optional[int] = None) -> dict:
         """
-        Get production figures for a specific month.
+        Get production figures for a specific month, or latest available.
 
         Args:
-            year: Year (e.g., 2025)
-            month: Month (1-12)
+            year: Year (e.g., 2025). If None, returns latest month.
+            month: Month (1-12). If None, returns latest month.
 
         Returns:
             Dict with 'oil_sm3', 'gas_msm3', 'water_sm3', etc.
             Empty dict if no data available.
+
+        Example:
+            >>> troll.production()           # Latest monthly production
+            >>> troll.production(2023, 6)    # June 2023 production
         """
         self._load_production()
 
         if self._production_cache.empty:
             return {}
 
-        # Filter by year and month
-        filtered = self._production_cache[
-            (self._production_cache['prfYear'] == year) &
-            (self._production_cache['prfMonth'] == month)
-        ]
+        # Get only monthly data (month > 0, as month=0 is yearly aggregates)
+        monthly = self._production_cache[self._production_cache['prfMonth'] > 0]
 
-        if filtered.empty:
+        if monthly.empty:
             return {}
 
-        row = filtered.iloc[0]
+        # If no year/month specified, get the latest entry
+        if year is None or month is None:
+            # Sort by year and month descending to get latest
+            latest = monthly.sort_values(['prfYear', 'prfMonth'], ascending=False)
+            row = latest.iloc[0]
+            year = int(row['prfYear'])
+            month = int(row['prfMonth'])
+        else:
+            # Filter by specified year and month
+            filtered = monthly[
+                (monthly['prfYear'] == year) &
+                (monthly['prfMonth'] == month)
+            ]
+            if filtered.empty:
+                return {}
+            row = filtered.iloc[0]
+
         return {
             'year': year,
             'month': month,
             'oil_sm3': float(row.get('prfPrdOilNetMillSm3', 0) or 0) * 1_000_000,
             'gas_msm3': float(row.get('prfPrdGasNetBillSm3', 0) or 0) * 1_000,
-            'ngl_tonnes': float(row.get('prfPrdNGLNetMillTonnes', 0) or 0) * 1_000_000,
+            'ngl_sm3': float(row.get('prfPrdNGLNetMillSm3', 0) or 0) * 1_000_000,
             'condensate_sm3': float(row.get('prfPrdCondensateNetMillSm3', 0) or 0) * 1_000_000,
-            'water_sm3': float(row.get('prfPrdProducedWaterInFieldMillSm3', 0) or 0) * 1_000_000,
+            'water_sm3': float(row.get('prfPrdProducedWaterInFieldMillS', 0) or 0) * 1_000_000,
         }
 
-    def production_yearly(self, year: int) -> dict:
+    def production_yearly(self, year: Optional[int] = None) -> dict:
         """
-        Get total production for a year.
+        Get total production for a year, or latest complete year.
 
         Args:
-            year: Year (e.g., 2024)
+            year: Year (e.g., 2024). If None, returns latest complete year.
 
         Returns:
             Dict with yearly totals
+
+        Example:
+            >>> troll.production_yearly()      # Latest complete year
+            >>> troll.production_yearly(2023)  # 2023 totals
         """
         self._load_production()
 
         if self._production_cache.empty:
             return {}
 
-        # Filter by year and sum
+        if year is None:
+            # Get the latest year that has actual monthly data
+            monthly = self._production_cache[self._production_cache['prfMonth'] > 0]
+            if monthly.empty:
+                return {}
+            year = int(monthly['prfYear'].max())
+
+        # Filter by year and sum monthly data
         filtered = self._production_cache[
-            self._production_cache['prfYear'] == year
+            (self._production_cache['prfYear'] == year) &
+            (self._production_cache['prfMonth'] > 0)
         ]
 
         if filtered.empty:
@@ -865,7 +994,7 @@ class Field(RelatedTableMixin):
             'year': year,
             'oil_sm3': float(filtered['prfPrdOilNetMillSm3'].sum() or 0) * 1_000_000,
             'gas_msm3': float(filtered['prfPrdGasNetBillSm3'].sum() or 0) * 1_000,
-            'ngl_tonnes': float(filtered['prfPrdNGLNetMillTonnes'].sum() or 0) * 1_000_000,
+            'ngl_sm3': float(filtered['prfPrdNGLNetMillSm3'].sum() or 0) * 1_000_000,
             'condensate_sm3': float(filtered['prfPrdCondensateNetMillSm3'].sum() or 0) * 1_000_000,
         }
 
@@ -898,16 +1027,16 @@ class Field(RelatedTableMixin):
         # Create cleaned DataFrame with readable column names
         df = self._production_cache.copy()
 
-        # Build clean DataFrame
+        # Build clean DataFrame with columns from profiles table
         clean_df = pd.DataFrame({
             'year': df['prfYear'].astype(int),
             'month': df['prfMonth'].astype(int),
             'oil_sm3': (df['prfPrdOilNetMillSm3'].fillna(0) * 1_000_000).astype(float),
             'gas_sm3': (df['prfPrdGasNetBillSm3'].fillna(0) * 1_000_000_000).astype(float),
-            'ngl_tonnes': (df['prfPrdNGLNetMillTonnes'].fillna(0) * 1_000_000).astype(float),
+            'ngl_sm3': (df['prfPrdNGLNetMillSm3'].fillna(0) * 1_000_000).astype(float),
             'condensate_sm3': (df['prfPrdCondensateNetMillSm3'].fillna(0) * 1_000_000).astype(float),
             'oe_sm3': (df['prfPrdOeNetMillSm3'].fillna(0) * 1_000_000).astype(float),
-            'water_sm3': (df['prfPrdProducedWaterInFieldMillSm3'].fillna(0) * 1_000_000).astype(float),
+            'water_sm3': (df['prfPrdProducedWaterInFieldMillS'].fillna(0) * 1_000_000).astype(float),
         })
 
         # Add injection columns if present
@@ -2417,27 +2546,41 @@ class Entity:
     @property
     def connections(self) -> Dict[str, List[str]]:
         """
-        Get lists of incoming and outgoing table connections.
+        Get lists of tables that reference this entity and tables this entity references.
 
         Returns a dict with:
-        - 'incoming': Tables that reference this entity (have matching ID column)
-        - 'outgoing': Tables this entity references (via foreign keys)
+        - 'referencing_me': Tables that have my primary ID as a foreign key
+        - 'i_reference': Base entity tables whose primary ID I have as a foreign key
 
         Example:
             >>> reserves = fp.field_reserves(43506)
             >>> reserves.connections
-            {'incoming': [...], 'outgoing': ['field', 'company', ...]}
+            {'referencing_me': [...], 'i_reference': ['field', 'company']}
         """
-        incoming = []
-        outgoing = []
+        referencing_me = []
 
         my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
         primary_pattern = self._get_primary_id_pattern()
 
+        if not primary_pattern:
+            return {'referencing_me': [], 'i_reference': []}
+
+        # Get my foreign keys (ID columns that are NOT my primary)
+        my_foreign_keys = [col for col in my_id_cols if primary_pattern not in col]
+
         all_tables = self._db.list_datasets()
 
+        # Map entity types to their InformationCarrierKind values
+        entity_to_carrier_kind = {
+            'field': 'FIELD',
+            'discovery': 'DISCOVERY',
+        }
+
+        # Find tables that reference me
         for table_name in all_tables:
             if table_name.startswith('_'):
+                continue
+            if table_name == self._table_name:
                 continue
 
             target_df = self._db.get_or_none(table_name)
@@ -2445,78 +2588,91 @@ class Entity:
                 continue
 
             target_id_cols = self.find_id_columns(target_df)
-            common = self.find_common_id_columns(my_id_cols, target_id_cols)
 
-            if not common:
-                continue
+            # Check if target table has MY primary ID
+            for col in target_id_cols:
+                if primary_pattern in col:
+                    if table_name not in referencing_me:
+                        referencing_me.append(table_name)
+                    break
 
-            for my_col, _ in common:
-                if primary_pattern and primary_pattern in my_col:
-                    if table_name not in incoming:
-                        incoming.append(table_name)
-                else:
-                    if table_name not in outgoing:
-                        outgoing.append(table_name)
+            # Check for information carrier pattern (generic ID type)
+            if table_name not in referencing_me:
+                for col in target_id_cols:
+                    if 'NpdidInformationCarrier' in col:
+                        kind_col = col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
+                        if kind_col in target_df.columns:
+                            my_kind = entity_to_carrier_kind.get(self._table_name)
+                            if my_kind and my_kind in target_df[kind_col].unique():
+                                referencing_me.append(table_name)
+                        break
+
+        # Map patterns to their base tables for i_reference
+        pattern_to_base_table = {
+            'NpdidField': 'field',
+            'NpdidDiscovery': 'discovery',
+            'NpdidWellbore': 'wellbore',
+            'NpdidCompany': 'company',
+            'NpdidLicence': 'licence',
+            'NpdidFacility': 'facility',
+            'NpdidPipeline': 'pipeline',
+            'NpdidPlay': 'play',
+            'NpdidBlock': 'block',
+            'NpdidQuadrant': 'quadrant',
+            'NpdidTuf': 'tuf',
+            'NpdidSurvey': 'seismic_acquisition',
+            'NpdidLithoStrat': 'strat_litho',
+            'NpdidBsnsArrArea': 'business_arrangement_area',
+        }
+
+        # Find which base tables I reference via my foreign keys
+        i_reference_base = set()
+        for my_fk in my_foreign_keys:
+            for pattern, base_table in pattern_to_base_table.items():
+                if pattern in my_fk and base_table in all_tables:
+                    i_reference_base.add(base_table)
+                    break
 
         return {
-            'incoming': sorted(incoming),
-            'outgoing': sorted(outgoing)
+            'referencing_me': sorted(referencing_me),
+            'i_reference': sorted(i_reference_base)
         }
 
     @property
     def full_connections(self) -> Dict[str, Dict[str, pd.DataFrame]]:
         """
-        Get filtered DataFrames for all incoming and outgoing connections.
+        Get filtered DataFrames for all connections.
 
         Returns a dict with:
-        - 'incoming': Dict of {table_name: filtered_DataFrame}
-        - 'outgoing': Dict of {table_name: filtered_DataFrame}
+        - 'referencing_me': Dict of {table_name: filtered_DataFrame}
+        - 'i_reference': Dict of {table_name: filtered_DataFrame}
 
         Example:
             >>> reserves = fp.field_reserves(43506)
             >>> conns = reserves.full_connections
-            >>> conns['outgoing']['field']  # DataFrame with the field
+            >>> conns['i_reference']['field']  # DataFrame with the field
         """
-        incoming = {}
-        outgoing = {}
+        # Get connection lists first
+        conn_lists = self.connections
 
-        my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
-        primary_pattern = self._get_primary_id_pattern()
+        referencing_me = {}
+        i_reference = {}
 
-        all_tables = self._db.list_datasets()
-
-        for table_name in all_tables:
-            if table_name.startswith('_'):
-                continue
-
-            target_df = self._db.get_or_none(table_name)
-            if target_df is None or target_df.empty:
-                continue
-
-            target_id_cols = self.find_id_columns(target_df)
-            common = self.find_common_id_columns(my_id_cols, target_id_cols)
-
-            if not common:
-                continue
-
+        # Get data for tables that reference me
+        for table_name in conn_lists['referencing_me']:
             related_df = self.related(table_name)
-            if related_df.empty:
-                continue
+            if not related_df.empty:
+                referencing_me[table_name] = related_df
 
-            is_incoming = False
-            for my_col, _ in common:
-                if primary_pattern and primary_pattern in my_col:
-                    is_incoming = True
-                    break
-
-            if is_incoming:
-                incoming[table_name] = related_df
-            else:
-                outgoing[table_name] = related_df
+        # Get data for tables I reference
+        for table_name in conn_lists['i_reference']:
+            related_df = self.related(table_name)
+            if not related_df.empty:
+                i_reference[table_name] = related_df
 
         return {
-            'incoming': incoming,
-            'outgoing': outgoing
+            'referencing_me': referencing_me,
+            'i_reference': i_reference
         }
 
     def __getattr__(self, name: str) -> Any:
