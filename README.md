@@ -19,7 +19,7 @@ from factpages_py import Factpages
 fp = Factpages(data_dir="./factpages_data")
 
 # Download core datasets
-fp.sync()
+fp.refresh()
 
 # Access a field
 troll = fp.field("troll")
@@ -28,7 +28,7 @@ print(troll)
 
 ---
 
-## Setup & Data Synchronization
+## Setup & Data Refresh
 
 ### Setting Up the Database
 
@@ -41,34 +41,44 @@ fp = Factpages(data_dir="./my_petroleum_data")
 # The database is stored as SQLite at: ./my_petroleum_data/factpages.db
 ```
 
-### Sync Methods
+### Refresh Methods
 
-#### Basic Sync (Core Datasets)
+#### Basic Refresh (Maintenance Mode)
 
 ```python
-# Sync core entities: field, discovery, wellbore, facility, company, licence
-fp.sync()
+# Maintenance: fetches core entities if missing, then fixes mismatches + stale data
+# Default: 10% limit on datasets to refresh, 25 days staleness threshold
+fp.refresh()
 
-# Sync specific datasets
-fp.sync('field')
-fp.sync(['field', 'discovery', 'wellbore'])
+# More aggressive maintenance (50% of datasets)
+fp.refresh(limit_percent=50)
+
+# Refresh specific datasets
+fp.refresh('field')
+fp.refresh(['field', 'discovery', 'wellbore'])
 
 # Force re-download even if data exists
-fp.sync('field', force=True)
+fp.refresh('field', force=True)
 ```
+
+Maintenance mode priorities:
+
+1. **Core entities**: Downloads `field`, `discovery`, `wellbore`, `facility`, `company`, `licence` if missing
+2. **Row count mismatches**: High priority, always refreshed regardless of limit
+3. **Stale datasets**: Older than 25 days, refreshed up to the limit
 
 #### Full Database Download
 
 ```python
 # Download ALL available datasets (75+ tables)
-results = fp.fetch_all()
+results = fp.refresh('all')
 print(f"Downloaded {results['synced_count']} datasets")
 ```
 
 #### Check API Statistics
 
 ```python
-# Get stats for all datasets (cached for 3 days)
+# Get stats for all datasets (cached for 3 days, auto-refreshes if stale)
 stats = fp.stats()
 print(f"Total remote records: {stats['total_remote_records']:,}")
 print(f"Missing datasets: {len(stats['missing'])}")
@@ -78,17 +88,7 @@ print(f"Changed datasets: {len(stats['changed'])}")
 stats = fp.stats(force_refresh=True)
 ```
 
-#### Refresh Stale Data
-
-```python
-# Refresh up to 10% of datasets older than 30 days
-results = fp.refresh()
-
-# More aggressive refresh
-results = fp.refresh(max_age_days=14, limit_percent=25)
-```
-
-#### Fix All Data Issues
+#### Fix All Stale Data
 
 ```python
 # Download all stale and missing datasets (no limit)
@@ -300,16 +300,16 @@ troll = fp.field("troll")
 
 # Get list of connected tables
 connections = troll.connections
-print(connections['referencing_me'])  # Tables that have fldNpdidField
+print(connections['incoming'])  # Tables that reference this field
 # ['field_reserves', 'field_licensee_hst', 'field_operator_hst', ...]
 
-print(connections['i_reference'])  # Base tables this field references via foreign keys
+print(connections['outgoing'])  # Base tables this field references
 # ['company', 'wellbore']
 
 # Get actual filtered data for all connections
 full_conns = troll.full_connections
-reserves_df = full_conns['referencing_me']['field_reserves']
-operator_df = full_conns['i_reference']['company']
+reserves_df = full_conns['incoming']['field_reserves']
+operator_df = full_conns['outgoing']['company']
 ```
 
 ### Partners and Ownership
@@ -459,7 +459,7 @@ from factpages_py import Factpages
 import rusty_graph
 
 fp = Factpages()
-fp.sync()
+fp.refresh()
 
 graph = rusty_graph.KnowledgeGraph()
 
@@ -506,7 +506,7 @@ config = ClientConfig(
 fp = Factpages(config=config)
 ```
 
-### Auto-Sync Mode
+### Auto-Refresh Mode
 
 ```python
 # Auto-download missing datasets when accessed
@@ -553,7 +553,7 @@ print(f"Tables (no geometry): {len(TABLES)}")
 
 ```python
 fp = Factpages()
-fp.sync('field')
+fp.refresh('field')
 
 producing = fp.fields(status='Producing')
 print(f"Found {len(producing)} producing fields")
@@ -568,7 +568,7 @@ for _, row in producing.iterrows():
 import pandas as pd
 
 fp = Factpages()
-fp.sync('wellbore')
+fp.refresh('wellbore')
 
 wellbores = fp.wellbores()
 print(f"Average depth: {wellbores['wlbTotalDepth'].mean():.0f}m")
@@ -579,7 +579,7 @@ print(f"Deepest wellbore: {wellbores['wlbTotalDepth'].max():.0f}m")
 
 ```python
 fp = Factpages()
-fp.sync(['field', 'field_licensee_hst', 'company'])
+fp.refresh(['field', 'field_licensee_hst', 'company'])
 
 # Build relationship table
 fields = fp.db.get('field')

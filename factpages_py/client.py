@@ -1083,41 +1083,65 @@ class Factpages:
     # Sync Operations
     # =========================================================================
 
-    def sync(
+    def refresh(
         self,
         datasets: Optional[Union[str, list[str]]] = None,
         category: Optional[str] = None,
         force: bool = False,
+        max_stale_days: int = 25,
+        limit_percent: float = 10.0,
         progress: bool = True,
         workers: int = 4
     ) -> dict:
         """
-        Sync datasets from API to local database.
+        Refresh datasets from API to local database.
+
+        When called without arguments, performs maintenance:
+        - Fetches datasets with row count mismatch (high priority)
+        - Fetches stale datasets (older than max_stale_days)
+        - Limited to limit_percent of total datasets by default
+
+        When called with specific datasets, downloads those datasets.
 
         Args:
-            datasets: Specific dataset(s) to sync (string or list)
-            category: Sync all datasets in category ('entities', 'production', etc.)
-            force: Force sync even if data is fresh
+            datasets: Specific dataset(s) to refresh. Options:
+                - None: Maintenance mode (fix mismatches + stale data)
+                - "all": All available datasets (75+ tables)
+                - "field": Single table
+                - ["field", "discovery"]: Multiple tables
+            category: Refresh all datasets in category ('entities', 'production', etc.)
+            force: Force refresh even if data exists locally
+            max_stale_days: Consider datasets older than this stale (default: 25)
+            limit_percent: Max percent of datasets to refresh in maintenance mode (default: 10)
             progress: Show progress
             workers: Number of parallel download threads (default: 4)
 
         Returns:
-            Dict with sync results
+            Dict with refresh results
 
         Example:
-            >>> fp.sync('field')  # Single table
-            >>> fp.sync(['field', 'discovery'])  # Multiple tables
+            >>> fp.refresh()  # Maintenance: fix mismatches + stale (max 10%)
+            >>> fp.refresh(limit_percent=50)  # More aggressive maintenance
+            >>> fp.refresh('field')  # Single table
+            >>> fp.refresh(['field', 'discovery'])  # Multiple tables
+            >>> fp.refresh('all')  # All 75+ tables
+            >>> fp.refresh('field', force=True)  # Force re-download
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
+        from datetime import datetime, timedelta
         from .sync import SyncEngine, IfMissing, AlwaysSync
         from .database import FILE_MAPPING
+
+        engine = SyncEngine(self, self.db)
+        strategy = AlwaysSync() if force else IfMissing()
+
+        # Handle "all" special keyword
+        if datasets == "all":
+            return engine.sync_all(strategy=strategy, progress=progress, workers=workers)
 
         # Handle string input (single dataset)
         if isinstance(datasets, str):
             datasets = [datasets]
-
-        engine = SyncEngine(self, self.db)
-        strategy = AlwaysSync() if force else IfMissing()
 
         results = {}
 
@@ -1126,13 +1150,9 @@ class Factpages:
                 raise ValueError(f"Unknown category: {category}")
             results[category] = engine.sync_category(category, strategy=strategy, progress=progress)
 
-        else:
-            # Determine which datasets to sync
-            if datasets:
-                to_sync = datasets
-            else:
-                # Sync core entities by default
-                to_sync = ['discovery', 'field', 'wellbore', 'facility', 'company', 'licence']
+        elif datasets:
+            # Specific datasets requested - download them
+            to_sync = datasets
 
             # Filter to only datasets that need downloading (unless force)
             if force:
@@ -1146,50 +1166,138 @@ class Factpages:
                     results[ds] = {'status': 'skipped', 'reason': 'already cached'}
 
             # Only download if there's something to download
-            if not to_download:
-                return results
+            if to_download:
+                if progress:
+                    print(f"Downloading {len(to_download)} tables...")
+
+                completed = 0
+
+                def sync_one(dataset: str) -> tuple[str, dict]:
+                    result = engine.sync_dataset(dataset, strategy=strategy, progress=False)
+                    return dataset, result
+
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {executor.submit(sync_one, ds): ds for ds in to_download}
+
+                    for future in as_completed(futures):
+                        dataset, result = future.result()
+                        results[dataset] = result
+                        completed += 1
+                        if progress:
+                            count = result.get('record_count', 0)
+                            print(f"  [{completed}/{len(to_download)}] {dataset}: {count:,} records")
+
+        else:
+            # Maintenance mode: ensure core entities + fix mismatches and stale datasets
+            core_entities = ['field', 'discovery', 'wellbore', 'facility', 'company', 'licence']
+            missing_core = [ds for ds in core_entities if not self.db.has_dataset(ds)]
+
+            # First, download missing core entities
+            if missing_core:
+                if progress:
+                    print(f"Downloading {len(missing_core)} missing core entities...")
+
+                completed = 0
+
+                def sync_core(dataset: str) -> tuple[str, dict]:
+                    result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
+                    return dataset, result
+
+                with ThreadPoolExecutor(max_workers=workers) as executor:
+                    futures = {executor.submit(sync_core, ds): ds for ds in missing_core}
+
+                    for future in as_completed(futures):
+                        dataset, result = future.result()
+                        result['priority'] = 'core'
+                        results[dataset] = result
+                        completed += 1
+                        if progress:
+                            count = result.get('record_count', 0)
+                            print(f"  [{completed}/{len(missing_core)}] {dataset} (core): {count:,} records")
+
+            # Then check for maintenance needs
+            if progress:
+                print("Checking database status...")
+
+            # Get stats to identify mismatches
+            stats = self.stats(progress=False, workers=workers)
+            all_datasets = list({**LAYERS, **TABLES}.keys())
+            total_count = len(all_datasets)
+            max_to_refresh = max(1, int(total_count * limit_percent / 100))
+
+            # Priority 1: Row count mismatches (always fetch these first)
+            mismatched = []
+            for ds_name, ds_stats in stats.items():
+                if isinstance(ds_stats, dict):
+                    local = ds_stats.get('local_count', 0)
+                    remote = ds_stats.get('remote_count', 0)
+                    if local != remote and remote > 0:
+                        mismatched.append((ds_name, abs(remote - local)))
+
+            # Sort by difference size (largest first)
+            mismatched.sort(key=lambda x: x[1], reverse=True)
+            mismatched_names = [ds for ds, _ in mismatched]
+
+            # Priority 2: Stale datasets (older than max_stale_days)
+            stale = []
+            cutoff = datetime.now() - timedelta(days=max_stale_days)
+
+            for ds_name in all_datasets:
+                if ds_name in mismatched_names:
+                    continue  # Already in mismatch list
+                last_sync = self.db.get_last_sync(ds_name)
+                if last_sync and last_sync < cutoff:
+                    age_days = (datetime.now() - last_sync).days
+                    stale.append((ds_name, age_days))
+
+            # Sort by age (oldest first)
+            stale.sort(key=lambda x: x[1], reverse=True)
+            stale_names = [ds for ds, _ in stale]
+
+            # Combine: mismatches first (always include), then stale up to limit
+            to_refresh = mismatched_names.copy()
+            remaining_slots = max_to_refresh - len(to_refresh)
+            if remaining_slots > 0:
+                to_refresh.extend(stale_names[:remaining_slots])
 
             if progress:
-                print(f"Downloading {len(to_download)} tables...")
+                print(f"Found {len(mismatched_names)} mismatched, {len(stale_names)} stale datasets")
+                print(f"Refreshing {len(to_refresh)} datasets (limit: {limit_percent}% = {max_to_refresh})")
 
-            # Track completed downloads
+            if not to_refresh:
+                if progress:
+                    print("Database is up to date!")
+                return {'status': 'ok', 'message': 'No datasets need refreshing'}
+
+            # Download the prioritized datasets
             completed = 0
 
             def sync_one(dataset: str) -> tuple[str, dict]:
-                result = engine.sync_dataset(dataset, strategy=strategy, progress=False)
+                result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
                 return dataset, result
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {executor.submit(sync_one, ds): ds for ds in to_download}
+                futures = {executor.submit(sync_one, ds): ds for ds in to_refresh}
 
                 for future in as_completed(futures):
                     dataset, result = future.result()
+                    priority = 'mismatch' if dataset in mismatched_names else 'stale'
+                    result['priority'] = priority
                     results[dataset] = result
                     completed += 1
                     if progress:
                         count = result.get('record_count', 0)
-                        print(f"  [{completed}/{len(to_download)}] {dataset}: {count:,} records")
+                        print(f"  [{completed}/{len(to_refresh)}] {dataset} ({priority}): {count:,} records")
+
+            results['_summary'] = {
+                'core_fetched': len(missing_core),
+                'mismatched_count': len(mismatched_names),
+                'stale_count': len(stale_names),
+                'refreshed_count': len(to_refresh) + len(missing_core),
+                'limit_applied': len(to_refresh) >= max_to_refresh
+            }
 
         return results
-
-    def sync_all(self, force: bool = False, progress: bool = True, workers: int = 4) -> dict:
-        """
-        Sync all datasets from API to local database.
-
-        Args:
-            force: Force sync even if data is fresh
-            progress: Show progress
-            workers: Number of parallel download threads (default: 4)
-
-        Returns:
-            Dict with sync results
-        """
-        from .sync import SyncEngine, IfMissing, AlwaysSync
-
-        engine = SyncEngine(self, self.db)
-        strategy = AlwaysSync() if force else IfMissing()
-
-        return engine.sync_all(strategy=strategy, progress=progress, workers=workers)
 
     def stats(
         self,
@@ -1255,48 +1363,6 @@ class Factpages:
         engine = SyncEngine(self, self.db)
         return engine.check_quality(progress=progress)
 
-    def refresh(
-        self,
-        max_age_days: int = 30,
-        limit_percent: float = 10.0,
-        progress: bool = True,
-        workers: int = 4
-    ) -> dict:
-        """
-        Refresh stale datasets with a limit on how many to download.
-
-        Designed for regular maintenance - refreshes the oldest datasets
-        first, but limits downloads to avoid overwhelming the API.
-        Run this periodically (e.g., weekly) to keep data fresh.
-
-        Args:
-            max_age_days: Consider datasets older than this stale (default: 30)
-            limit_percent: Maximum percentage of datasets to refresh (default: 10%)
-            progress: Show progress messages
-            workers: Number of parallel download threads
-
-        Returns:
-            Dict with refresh results
-
-        Example:
-            >>> # Refresh up to 10% of datasets older than 30 days
-            >>> results = fp.refresh()
-            >>>
-            >>> # More aggressive: refresh up to 25%
-            >>> results = fp.refresh(limit_percent=25)
-            >>>
-            >>> # Check remaining stale datasets
-            >>> print(f"Still stale: {results['stale_remaining']}")
-        """
-        from .sync import SyncEngine
-        engine = SyncEngine(self, self.db)
-        return engine.refresh(
-            max_age_days=max_age_days,
-            limit_percent=limit_percent,
-            progress=progress,
-            workers=workers
-        )
-
     def fix(
         self,
         max_age_days: int = 30,
@@ -1305,11 +1371,11 @@ class Factpages:
         workers: int = 4
     ) -> dict:
         """
-        Thorough fix: refresh ALL stale and missing datasets without limits.
+        Fix data quality: refresh ALL stale and missing datasets.
 
-        Use this when you need a complete data refresh, like after a long
-        period of inactivity or when data quality is critical. Unlike
-        refresh(), this has no limit on how many datasets to download.
+        Identifies datasets older than max_age_days and re-downloads them.
+        Use this for data maintenance when you need fresh data across
+        the entire database.
 
         Args:
             max_age_days: Consider datasets older than this stale (default: 30)
@@ -1467,7 +1533,7 @@ class Factpages:
                 if df is None:
                     raise ValueError(
                         f"Table '{name}' not available. "
-                        f"Run fp.sync('{name}') to download it."
+                        f"Run fp.refresh('{name}') to download it."
                     )
                 row = Entity.find_by_id(df, id_value)
                 if row is None:

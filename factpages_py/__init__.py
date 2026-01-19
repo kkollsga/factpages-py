@@ -14,8 +14,8 @@ Quick Start:
     >>> # Initialize client
     >>> fp = Factpages()
     >>>
-    >>> # Sync data from API
-    >>> fp.sync()
+    >>> # Refresh data from API
+    >>> fp.refresh()
     >>>
     >>> # User-friendly entity access
     >>> troll = fp.field("troll")

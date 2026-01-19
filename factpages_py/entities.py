@@ -234,6 +234,42 @@ class RelatedTableMixin:
             return self.related(name)
         return None
 
+    @property
+    def data(self) -> str:
+        """
+        Display all column names and values for this entity.
+
+        Returns a formatted string showing every column and its value,
+        similar to pandas iloc but without column limits.
+
+        Example:
+            >>> print(troll.data)
+            fldNpdidField: 46437
+            fldName: TROLL
+            fldCurrentActivityStatus: Producing
+            ...
+        """
+        lines = []
+        for col in self._data.index:
+            value = self._data[col]
+            lines.append(f"{col}: {value}")
+        return "\n".join(lines)
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """
+        Get this entity's data as a single-row DataFrame.
+
+        For most entities this returns a DataFrame with one row.
+        For entities that may have multiple rows (like reserves history),
+        this returns all matching rows.
+
+        Example:
+            >>> troll_df = troll.df
+            >>> troll_df.columns
+        """
+        return pd.DataFrame([self._data])
+
     def _get_primary_id_pattern(self) -> Optional[str]:
         """
         Determine the primary ID pattern for this entity.
@@ -283,22 +319,22 @@ class RelatedTableMixin:
         Get lists of tables that reference this entity and tables this entity references.
 
         Returns a dict with:
-        - 'referencing_me': Tables that have my primary ID as a foreign key
+        - 'incoming': Tables that have my primary ID as a foreign key
           (e.g., field_reserves, field_licensee_hst reference field)
-        - 'i_reference': Tables whose primary entities I have foreign keys to
+        - 'outgoing': Tables whose primary entities I have foreign keys to
           (e.g., field references company via cmpNpdidCompany)
 
         Example:
             >>> troll = fp.field("troll")
             >>> troll.connections
-            {'referencing_me': ['field_reserves', 'field_licensee_hst', ...],
-             'i_reference': ['company', 'licence']}
+            {'incoming': ['field_reserves', 'field_licensee_hst', ...],
+             'outgoing': ['company', 'licence']}
         """
-        referencing_me = []
+        incoming = []
 
         primary_pattern = self._get_primary_id_pattern()
         if not primary_pattern:
-            return {'referencing_me': [], 'i_reference': []}
+            return {'incoming': [], 'outgoing': []}
 
         # Get my foreign keys (ID columns that are NOT my primary)
         my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
@@ -333,13 +369,13 @@ class RelatedTableMixin:
             # Check if target table has MY primary ID → it references me
             for col in target_id_cols:
                 if primary_pattern in col:
-                    if table_name not in referencing_me:
-                        referencing_me.append(table_name)
+                    if table_name not in incoming:
+                        incoming.append(table_name)
                     break
 
             # Check for information carrier pattern (generic ID type)
             # Tables like 'profiles' use NpdidInformationCarrier + Kind column
-            if table_name not in referencing_me:
+            if table_name not in incoming:
                 for col in target_id_cols:
                     if 'NpdidInformationCarrier' in col:
                         # Check if there's a Kind column indicating which entity types
@@ -348,10 +384,10 @@ class RelatedTableMixin:
                             # Check if this entity's type is in the kind values
                             my_kind = entity_to_carrier_kind.get(base_table)
                             if my_kind and my_kind in target_df[kind_col].unique():
-                                referencing_me.append(table_name)
+                                incoming.append(table_name)
                         break
 
-        # For i_reference, only include the BASE entity tables (not all tables with that ID)
+        # For outgoing, only include the BASE entity tables (not all tables with that ID)
         # Map patterns to their base tables
         pattern_to_base_table = {
             'NpdidField': 'field',
@@ -371,16 +407,16 @@ class RelatedTableMixin:
         }
 
         # Find which base tables I reference via my foreign keys
-        i_reference_base = set()
+        outgoing_base = set()
         for my_fk in my_foreign_keys:
             for pattern, base_table in pattern_to_base_table.items():
                 if pattern in my_fk and base_table in all_tables:
-                    i_reference_base.add(base_table)
+                    outgoing_base.add(base_table)
                     break
 
         return {
-            'referencing_me': sorted(referencing_me),
-            'i_reference': sorted(i_reference_base)
+            'incoming': sorted(incoming),
+            'outgoing': sorted(outgoing_base)
         }
 
     @property
@@ -389,36 +425,36 @@ class RelatedTableMixin:
         Get filtered DataFrames for all connections.
 
         Returns a dict with:
-        - 'referencing_me': Dict of {table_name: filtered_DataFrame} for tables that reference this entity
-        - 'i_reference': Dict of {table_name: filtered_DataFrame} for tables this entity references
+        - 'incoming': Dict of {table_name: filtered_DataFrame} for tables that reference this entity
+        - 'outgoing': Dict of {table_name: filtered_DataFrame} for tables this entity references
 
         Example:
             >>> troll = fp.field("troll")
             >>> conns = troll.full_connections
-            >>> conns['referencing_me']['field_reserves']  # DataFrame of Troll's reserves
-            >>> conns['i_reference']['company']  # DataFrame of Troll's operator
+            >>> conns['incoming']['field_reserves']  # DataFrame of Troll's reserves
+            >>> conns['outgoing']['company']  # DataFrame of Troll's operator
         """
         # Get connection lists first
         conn_lists = self.connections
 
-        referencing_me = {}
-        i_reference = {}
+        incoming = {}
+        outgoing = {}
 
         # Get data for tables that reference me
-        for table_name in conn_lists['referencing_me']:
+        for table_name in conn_lists['incoming']:
             related_df = self.related(table_name)
             if not related_df.empty:
-                referencing_me[table_name] = related_df
+                incoming[table_name] = related_df
 
         # Get data for tables I reference
-        for table_name in conn_lists['i_reference']:
+        for table_name in conn_lists['outgoing']:
             related_df = self.related(table_name)
             if not related_df.empty:
-                i_reference[table_name] = related_df
+                outgoing[table_name] = related_df
 
         return {
-            'referencing_me': referencing_me,
-            'i_reference': i_reference
+            'incoming': incoming,
+            'outgoing': outgoing
         }
 
 
@@ -2549,21 +2585,21 @@ class Entity:
         Get lists of tables that reference this entity and tables this entity references.
 
         Returns a dict with:
-        - 'referencing_me': Tables that have my primary ID as a foreign key
-        - 'i_reference': Base entity tables whose primary ID I have as a foreign key
+        - 'incoming': Tables that have my primary ID as a foreign key
+        - 'outgoing': Base entity tables whose primary ID I have as a foreign key
 
         Example:
             >>> reserves = fp.field_reserves(43506)
             >>> reserves.connections
-            {'referencing_me': [...], 'i_reference': ['field', 'company']}
+            {'incoming': [...], 'outgoing': ['field', 'company']}
         """
-        referencing_me = []
+        incoming = []
 
         my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
         primary_pattern = self._get_primary_id_pattern()
 
         if not primary_pattern:
-            return {'referencing_me': [], 'i_reference': []}
+            return {'incoming': [], 'outgoing': []}
 
         # Get my foreign keys (ID columns that are NOT my primary)
         my_foreign_keys = [col for col in my_id_cols if primary_pattern not in col]
@@ -2592,22 +2628,22 @@ class Entity:
             # Check if target table has MY primary ID
             for col in target_id_cols:
                 if primary_pattern in col:
-                    if table_name not in referencing_me:
-                        referencing_me.append(table_name)
+                    if table_name not in incoming:
+                        incoming.append(table_name)
                     break
 
             # Check for information carrier pattern (generic ID type)
-            if table_name not in referencing_me:
+            if table_name not in incoming:
                 for col in target_id_cols:
                     if 'NpdidInformationCarrier' in col:
                         kind_col = col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
                         if kind_col in target_df.columns:
                             my_kind = entity_to_carrier_kind.get(self._table_name)
                             if my_kind and my_kind in target_df[kind_col].unique():
-                                referencing_me.append(table_name)
+                                incoming.append(table_name)
                         break
 
-        # Map patterns to their base tables for i_reference
+        # Map patterns to their base tables for outgoing
         pattern_to_base_table = {
             'NpdidField': 'field',
             'NpdidDiscovery': 'discovery',
@@ -2626,16 +2662,16 @@ class Entity:
         }
 
         # Find which base tables I reference via my foreign keys
-        i_reference_base = set()
+        outgoing_base = set()
         for my_fk in my_foreign_keys:
             for pattern, base_table in pattern_to_base_table.items():
                 if pattern in my_fk and base_table in all_tables:
-                    i_reference_base.add(base_table)
+                    outgoing_base.add(base_table)
                     break
 
         return {
-            'referencing_me': sorted(referencing_me),
-            'i_reference': sorted(i_reference_base)
+            'incoming': sorted(incoming),
+            'outgoing': sorted(outgoing_base)
         }
 
     @property
@@ -2644,35 +2680,35 @@ class Entity:
         Get filtered DataFrames for all connections.
 
         Returns a dict with:
-        - 'referencing_me': Dict of {table_name: filtered_DataFrame}
-        - 'i_reference': Dict of {table_name: filtered_DataFrame}
+        - 'incoming': Dict of {table_name: filtered_DataFrame}
+        - 'outgoing': Dict of {table_name: filtered_DataFrame}
 
         Example:
             >>> reserves = fp.field_reserves(43506)
             >>> conns = reserves.full_connections
-            >>> conns['i_reference']['field']  # DataFrame with the field
+            >>> conns['outgoing']['field']  # DataFrame with the field
         """
         # Get connection lists first
         conn_lists = self.connections
 
-        referencing_me = {}
-        i_reference = {}
+        incoming = {}
+        outgoing = {}
 
         # Get data for tables that reference me
-        for table_name in conn_lists['referencing_me']:
+        for table_name in conn_lists['incoming']:
             related_df = self.related(table_name)
             if not related_df.empty:
-                referencing_me[table_name] = related_df
+                incoming[table_name] = related_df
 
         # Get data for tables I reference
-        for table_name in conn_lists['i_reference']:
+        for table_name in conn_lists['outgoing']:
             related_df = self.related(table_name)
             if not related_df.empty:
-                i_reference[table_name] = related_df
+                outgoing[table_name] = related_df
 
         return {
-            'referencing_me': referencing_me,
-            'i_reference': i_reference
+            'incoming': incoming,
+            'outgoing': outgoing
         }
 
     def __getattr__(self, name: str) -> Any:
