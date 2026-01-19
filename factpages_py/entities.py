@@ -785,12 +785,15 @@ class PartnersList(list):
         Total: 100.00%
     """
 
-    def __init__(self, partners: list, field_name: str = ""):
+    def __init__(self, partners: list, field_name: str = "", as_of: Optional[str] = None):
         super().__init__(partners)
         self.field_name = field_name
+        self.as_of = as_of
 
     def __str__(self) -> str:
         if not self:
+            if self.as_of:
+                return f"No partners found as of {self.as_of}"
             return "No partners found"
 
         # Calculate column widths
@@ -805,7 +808,11 @@ class PartnersList(list):
         header = f"{'Company':<{company_width}}  {'Share %':>{share_width}}  {'Operator':<{op_width}}"
         table_width = len(header)
 
-        lines = [f"\nPartners ({len(self)}):"]
+        # Title with optional date
+        if self.as_of:
+            lines = [f"\nPartners as of {self.as_of} ({len(self)}):"]
+        else:
+            lines = [f"\nPartners ({len(self)}):"]
         lines.append("=" * table_width)
         lines.append(header)
         lines.append("-" * table_width)
@@ -1098,24 +1105,32 @@ class Field(RelatedTableMixin):
     # Related Data Properties
     # =========================================================================
 
-    @property
-    def partners(self) -> PartnersList:
+    def partners(self, as_of: Optional[str] = None) -> PartnersList:
         """
-        Current field partners (licensees) with their equity shares.
+        Get field partners (licensees) with their equity shares.
+
+        Args:
+            as_of: Optional date string (YYYY-MM-DD) to get historic partners.
+                   If None, returns current partners.
 
         Returns:
             PartnersList with 'company', 'share', and 'is_operator' keys.
             Print it for a nice formatted table.
 
         Example:
-            >>> print(troll.partners)
+            >>> # Current partners
+            >>> print(troll.partners())
 
             Partners (5):
-            ┌──────────────────────────────────────────┬─────────┬──────────┐
-            │ Company                                  │ Share % │ Operator │
-            ├──────────────────────────────────────────┼─────────┼──────────┤
-            │ Equinor Energy AS                        │   30.58 │    ✓     │
+            ============================================================
+            Company                              Share %  Operator
+            ------------------------------------------------------------
+            Petoro AS                              55.93
+            Equinor Energy AS                      30.55  *
             ...
+
+            >>> # Historic partners as of a specific date
+            >>> print(troll.partners("2010-01-01"))
         """
         if self._partners_cache is None:
             licensees = self._db.get_or_none('field_licensee_hst')
@@ -1127,28 +1142,40 @@ class Field(RelatedTableMixin):
                 self._partners_cache = pd.DataFrame()
 
         if self._partners_cache.empty:
-            return PartnersList([], field_name=self.name)
+            return PartnersList([], field_name=self.name, as_of=as_of)
 
-        # Get current partners (those without end date or future end date)
-        current = self._partners_cache.copy()
-        today = datetime.now().strftime('%Y-%m-%d')
+        # Filter by date
+        filtered = self._partners_cache.copy()
 
-        if 'fldLicenseeDateValidTo' in current.columns:
-            current = current[
-                current['fldLicenseeDateValidTo'].isna() |
-                (current['fldLicenseeDateValidTo'] >= today)
+        # Convert as_of date to epoch milliseconds
+        if as_of:
+            target_dt = datetime.strptime(as_of, '%Y-%m-%d')
+        else:
+            target_dt = datetime.now()
+        target_ms = target_dt.timestamp() * 1000
+
+        # Filter: started before target date AND (no end date OR ended after target date)
+        if 'fldLicenseeFrom' in filtered.columns and 'fldLicenseeTo' in filtered.columns:
+            filtered = filtered[
+                (filtered['fldLicenseeFrom'] <= target_ms) &
+                (filtered['fldLicenseeTo'].isna() | (filtered['fldLicenseeTo'] > target_ms))
+            ]
+        elif 'fldLicenseeTo' in filtered.columns:
+            # Only filter by end date if start date not available
+            filtered = filtered[
+                filtered['fldLicenseeTo'].isna() | (filtered['fldLicenseeTo'] > target_ms)
             ]
 
         partners = []
-        for _, row in current.iterrows():
+        for _, row in filtered.iterrows():
             partners.append({
                 'company': row.get('cmpLongName', ''),
-                'share': float(row.get('fldLicenseeInterest', 0)),
+                'share': float(row.get('fldCompanyShare', 0) or 0),
                 'is_operator': row.get('cmpLongName', '') == self.operator,
             })
 
         partners = sorted(partners, key=lambda x: x['share'], reverse=True)
-        return PartnersList(partners, field_name=self.name)
+        return PartnersList(partners, field_name=self.name, as_of=as_of)
 
     @property
     def reserves(self) -> dict:
