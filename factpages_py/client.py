@@ -1128,7 +1128,7 @@ class Factpages:
             >>> fp.refresh('field', force=True)  # Force re-download
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        from datetime import datetime, timedelta
+        from datetime import datetime
         from .sync import SyncEngine, IfMissing, AlwaysSync
         from .database import FILE_MAPPING
 
@@ -1189,112 +1189,107 @@ class Factpages:
 
         else:
             # Maintenance mode: ensure core entities + fix mismatches and stale datasets
+            import time as time_module
+            start_time = time_module.time()
+
             core_entities = ['field', 'discovery', 'wellbore', 'facility', 'company', 'licence']
             missing_core = [ds for ds in core_entities if not self.db.has_dataset(ds)]
 
-            # First, download missing core entities
-            if missing_core:
-                if progress:
-                    print(f"Downloading {len(missing_core)} missing core entities...")
-
-                completed = 0
-
-                def sync_core(dataset: str) -> tuple[str, dict]:
-                    result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
-                    return dataset, result
-
-                with ThreadPoolExecutor(max_workers=workers) as executor:
-                    futures = {executor.submit(sync_core, ds): ds for ds in missing_core}
-
-                    for future in as_completed(futures):
-                        dataset, result = future.result()
-                        result['priority'] = 'core'
-                        results[dataset] = result
-                        completed += 1
-                        if progress:
-                            count = result.get('record_count', 0)
-                            print(f"  [{completed}/{len(missing_core)}] {dataset} (core): {count:,} records")
-
-            # Then check for maintenance needs
             if progress:
-                print("Checking database status...")
+                print("refreshing...", end="", flush=True)
 
-            # Get stats to identify mismatches
+            # Check if stats cache needs refresh
+            stats_cache_path = self.db.data_dir / "_stats_cache.json"
+            stats_stale = True
+            if stats_cache_path.exists():
+                try:
+                    import json as json_module
+                    with open(stats_cache_path) as f:
+                        cached = json_module.load(f)
+                    fetched_at = datetime.fromisoformat(cached.get('fetched_at', '2000-01-01'))
+                    stats_stale = (datetime.now() - fetched_at).days >= 3
+                except Exception:
+                    stats_stale = True
+
+            if stats_stale and progress:
+                print("fetching stats...", end="", flush=True)
+
+            # Get stats - this returns pre-computed changed/stale lists
             stats = self.stats(progress=False, workers=workers)
             all_datasets = list({**LAYERS, **TABLES}.keys())
             total_count = len(all_datasets)
             max_to_refresh = max(1, int(total_count * limit_percent / 100))
 
-            # Priority 1: Row count mismatches (always fetch these first)
-            mismatched = []
-            for ds_name, ds_stats in stats.items():
-                if isinstance(ds_stats, dict):
-                    local = ds_stats.get('local_count', 0)
-                    remote = ds_stats.get('remote_count', 0)
-                    if local != remote and remote > 0:
-                        mismatched.append((ds_name, abs(remote - local)))
-
-            # Sort by difference size (largest first)
+            # Use pre-computed lists from stats (much faster than recomputing)
+            # Priority 1: Row count mismatches (changed datasets)
+            changed_list = stats.get('changed', [])
+            mismatched = [(item['dataset'], abs(item.get('remote_count', 0) - item.get('local_count', 0)))
+                          for item in changed_list if item.get('remote_count', 0) > 0]
             mismatched.sort(key=lambda x: x[1], reverse=True)
             mismatched_names = [ds for ds, _ in mismatched]
 
-            # Priority 2: Stale datasets (older than max_stale_days)
-            stale = []
-            cutoff = datetime.now() - timedelta(days=max_stale_days)
-
-            for ds_name in all_datasets:
-                if ds_name in mismatched_names:
-                    continue  # Already in mismatch list
-                last_sync = self.db.get_last_sync(ds_name)
-                if last_sync and last_sync < cutoff:
-                    age_days = (datetime.now() - last_sync).days
-                    stale.append((ds_name, age_days))
-
-            # Sort by age (oldest first)
+            # Priority 2: Stale datasets from stats (already computed)
+            stale_list = stats.get('stale', [])
+            # Filter by max_stale_days (stats uses 7 days, we might want different threshold)
+            stale = [(item['dataset'], item.get('age_days', 0))
+                     for item in stale_list
+                     if item['dataset'] not in mismatched_names
+                     and (item.get('age_days') or 0) >= max_stale_days]
             stale.sort(key=lambda x: x[1], reverse=True)
             stale_names = [ds for ds, _ in stale]
 
-            # Combine: mismatches first (always include), then stale up to limit
-            to_refresh = mismatched_names.copy()
-            remaining_slots = max_to_refresh - len(to_refresh)
+            # Combine: core first, then mismatches, then stale up to limit
+            to_fetch = missing_core.copy()
+            to_fetch.extend(mismatched_names)
+            remaining_slots = max_to_refresh - len(mismatched_names)
             if remaining_slots > 0:
-                to_refresh.extend(stale_names[:remaining_slots])
+                to_fetch.extend(stale_names[:remaining_slots])
 
-            if progress:
-                print(f"Found {len(mismatched_names)} mismatched, {len(stale_names)} stale datasets")
-                print(f"Refreshing {len(to_refresh)} datasets (limit: {limit_percent}% = {max_to_refresh})")
-
-            if not to_refresh:
+            if not to_fetch:
                 if progress:
-                    print("Database is up to date!")
+                    print("db ok")
                 return {'status': 'ok', 'message': 'No datasets need refreshing'}
 
-            # Download the prioritized datasets
-            completed = 0
+            # Print what we're fetching
+            if progress:
+                print()  # New line after "refreshing..."
+                ds_list = str(to_fetch) if len(to_fetch) <= 6 else str(to_fetch[:5])[:-1] + f", ... +{len(to_fetch)-5} more]"
+                print(f"fetching {len(to_fetch)} {ds_list}")
+
+            # Download datasets
+            completed_datasets = []
 
             def sync_one(dataset: str) -> tuple[str, dict]:
                 result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
                 return dataset, result
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {executor.submit(sync_one, ds): ds for ds in to_refresh}
+                futures = {executor.submit(sync_one, ds): ds for ds in to_fetch}
 
                 for future in as_completed(futures):
                     dataset, result = future.result()
-                    priority = 'mismatch' if dataset in mismatched_names else 'stale'
+                    priority = 'core' if dataset in missing_core else ('mismatch' if dataset in mismatched_names else 'stale')
                     result['priority'] = priority
                     results[dataset] = result
-                    completed += 1
+                    completed_datasets.append(dataset)
+
                     if progress:
-                        count = result.get('record_count', 0)
-                        print(f"  [{completed}/{len(to_refresh)}] {dataset} ({priority}): {count:,} records")
+                        # Print completed datasets on same line, updating as we go
+                        quoted = [f"'{d}'" for d in completed_datasets[-5:]]
+                        print(f"\rcompleted: {', '.join(quoted)}" + (" ..." if len(completed_datasets) > 5 else ""), end="", flush=True)
+
+            elapsed = time_module.time() - start_time
+            if progress:
+                print()  # New line after completed list
+                print(f"refresh completed, {len(to_fetch)} datasets fetched in {elapsed:.1f}s")
 
             results['_summary'] = {
                 'core_fetched': len(missing_core),
                 'mismatched_count': len(mismatched_names),
                 'stale_count': len(stale_names),
-                'refreshed_count': len(to_refresh) + len(missing_core),
-                'limit_applied': len(to_refresh) >= max_to_refresh
+                'refreshed_count': len(to_fetch),
+                'limit_applied': len(to_fetch) >= max_to_refresh,
+                'elapsed_seconds': elapsed
             }
 
         return results
