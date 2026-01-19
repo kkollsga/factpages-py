@@ -126,6 +126,132 @@ class EntityData:
         return zip(self._data.index, self._data.values)
 
 
+class RelatedData:
+    """
+    Wrapper for related DataFrame that provides .data and .df API.
+
+    When printed, shows a nice overview of the related data.
+    Provides attribute access to columns and DataFrame access.
+
+    Example:
+        >>> reserves = discovery.discovery_reserves
+        >>> print(reserves.data)  # Nice formatted output
+        >>> reserves.df           # Get as DataFrame
+        >>> reserves.data.dscRecoverableOil  # Access column
+    """
+
+    MAX_VALUE_LENGTH = 60
+
+    def __init__(self, df: pd.DataFrame, table_name: str = ""):
+        self._df = df
+        self._table_name = table_name
+
+    @property
+    def df(self) -> pd.DataFrame:
+        """Return the underlying DataFrame."""
+        return self._df
+
+    @property
+    def data(self) -> "RelatedDataView":
+        """Return a data view for nice printing and column access."""
+        return RelatedDataView(self._df, self._table_name)
+
+    def __len__(self) -> int:
+        return len(self._df)
+
+    def __iter__(self):
+        """Iterate over rows as Series."""
+        for _, row in self._df.iterrows():
+            yield row
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to the DataFrame."""
+        if name in self._df.columns:
+            return self._df[name]
+        return getattr(self._df, name)
+
+    def __getitem__(self, key):
+        """Allow indexing like a DataFrame."""
+        return self._df[key]
+
+    def __repr__(self) -> str:
+        return f"<RelatedData: {self._table_name} ({len(self._df)} rows)>"
+
+    def __str__(self) -> str:
+        """Short summary when printed directly."""
+        return f"{self._table_name}: {len(self._df)} rows"
+
+
+class RelatedDataView:
+    """
+    View for RelatedData that provides nice printing and column access.
+
+    Example:
+        >>> print(reserves.data)  # Formatted output
+        >>> reserves.data.dscRecoverableOil  # Column values
+    """
+
+    MAX_VALUE_LENGTH = 60
+    MAX_ROWS_DISPLAY = 5
+
+    def __init__(self, df: pd.DataFrame, table_name: str = ""):
+        self._df = df
+        self._table_name = table_name
+
+    def _truncate(self, value: Any) -> str:
+        """Truncate a value for display."""
+        s = str(value)
+        if len(s) <= self.MAX_VALUE_LENGTH:
+            return s
+        keep = (self.MAX_VALUE_LENGTH - 3) // 2
+        return s[:keep] + "..." + s[-keep:]
+
+    def __getattr__(self, name: str) -> Any:
+        """Allow column access."""
+        if name in self._df.columns:
+            return self._df[name].tolist()
+        raise AttributeError(f"No column '{name}'")
+
+    def __getitem__(self, key: str) -> Any:
+        """Dict-style column access."""
+        return self._df[key].tolist()
+
+    def keys(self) -> list:
+        """Return column names."""
+        return list(self._df.columns)
+
+    def __str__(self) -> str:
+        """Formatted string showing all rows with truncated values."""
+        if self._df.empty:
+            return f"{self._table_name}: (empty)"
+
+        lines = []
+        n_rows = len(self._df)
+        show_rows = min(n_rows, self.MAX_ROWS_DISPLAY)
+
+        if self._table_name:
+            lines.append(f"{self._table_name}: {n_rows} row{'s' if n_rows != 1 else ''}")
+            lines.append("-" * 60)
+
+        for i in range(show_rows):
+            row = self._df.iloc[i]
+            if i > 0:
+                lines.append("")
+            lines.append(f"[Row {i}]")
+            for col in self._df.columns:
+                value = row[col]
+                display_value = self._truncate(value)
+                lines.append(f"  {col}: {display_value}")
+
+        if n_rows > self.MAX_ROWS_DISPLAY:
+            lines.append(f"\n... and {n_rows - self.MAX_ROWS_DISPLAY} more rows")
+
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return f"<RelatedDataView: {len(self._df)} rows, {len(self._df.columns)} columns>"
+
+
 class RelatedTableMixin:
     """
     Mixin that provides dynamic related table access for entity classes.
@@ -187,7 +313,7 @@ class RelatedTableMixin:
                         break
         return common
 
-    def related(self, table_name: str) -> pd.DataFrame:
+    def related(self, table_name: str) -> "RelatedData":
         """
         Get related rows from another table.
 
@@ -202,16 +328,17 @@ class RelatedTableMixin:
             table_name: Name of the table to query
 
         Returns:
-            DataFrame with matching rows from the target table
+            RelatedData with matching rows (use .df for DataFrame, .data for display)
 
         Example:
             >>> troll = fp.field("troll")
             >>> reserves = troll.related('field_reserves')
-            >>> licensees = troll.related('field_licensee_hst')
+            >>> print(reserves.data)  # Nice formatted output
+            >>> reserves.df           # Get as DataFrame
         """
         target_df = self._db.get_or_none(table_name)
         if target_df is None:
-            return pd.DataFrame()
+            return RelatedData(pd.DataFrame(), table_name)
 
         # Find ID columns in both
         my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
@@ -242,13 +369,14 @@ class RelatedTableMixin:
                 if my_id_col in self._data.index and kind_col in target_df.columns:
                     my_value = self._data.get(my_id_col)
                     if pd.notna(my_value):
-                        return target_df[
+                        result = target_df[
                             (target_df[info_carrier_col] == my_value) &
                             (target_df[kind_col] == kind_value)
                         ]
+                        return RelatedData(result, table_name)
 
         if not common:
-            return pd.DataFrame()
+            return RelatedData(pd.DataFrame(), table_name)
 
         # Prioritize the ID column that best matches the target table name
         # e.g., for 'field' table, prefer 'NpdidField' pattern
@@ -287,15 +415,16 @@ class RelatedTableMixin:
         my_col, target_col = best_match
         my_value = self._data.get(my_col)
         if pd.notna(my_value):
-            return target_df[target_df[target_col] == my_value]
+            result = target_df[target_df[target_col] == my_value]
+            return RelatedData(result, table_name)
 
-        return pd.DataFrame()
+        return RelatedData(pd.DataFrame(), table_name)
 
-    def _lookup_related_table(self, name: str) -> Optional[pd.DataFrame]:
+    def _lookup_related_table(self, name: str) -> Optional["RelatedData"]:
         """
         Try to find a related table by name.
 
-        Returns DataFrame if table exists (may be empty), None if table doesn't exist.
+        Returns RelatedData if table exists (may be empty), None if table doesn't exist.
         """
         if self._db.has_dataset(name):
             return self.related(name)
@@ -336,6 +465,115 @@ class RelatedTableMixin:
             >>> troll_df.columns
         """
         return pd.DataFrame([self._data])
+
+    # =========================================================================
+    # Template Customization
+    # =========================================================================
+
+    def _get_entity_type(self) -> str:
+        """Get the entity type string for this entity."""
+        # Subclasses should define _entity_type, otherwise infer from class name
+        if hasattr(self, '_entity_type'):
+            return self._entity_type
+        return type(self).__name__.lower()
+
+    def _get_default_template(self) -> str:
+        """Get the default template for this entity type."""
+        from .display import TEMPLATES
+        entity_type = self._get_entity_type()
+        return TEMPLATES.get(entity_type, "")
+
+    def _get_current_template(self) -> str:
+        """Get the current template (custom if exists, else default)."""
+        entity_type = self._get_entity_type()
+        custom = self._db.get_template(entity_type)
+        if custom is not None:
+            return custom
+        return self._get_default_template()
+
+    def str_template(self, index: bool = True) -> str:
+        """
+        Show the current template for this entity type.
+
+        Args:
+            index: If True, show line numbers. If False, show raw template.
+
+        Returns:
+            Template string with or without line numbers.
+
+        Example:
+            >>> print(discovery.str_template())
+            DISCOVERY_TEMPLATE:
+            1: "# Discovery: {name}"
+            2: "==="
+            3: "Discovered: {discovery_year:<12}  HC Type: {hc_type}"
+            ...
+
+            >>> print(discovery.str_template(index=False))
+            DISCOVERY_TEMPLATE = \"\"\"
+            # Discovery: {name}
+            ===
+            ...
+            \"\"\"
+        """
+        entity_type = self._get_entity_type()
+        template = self._get_current_template()
+        template_name = f"{entity_type.upper()}_TEMPLATE"
+
+        lines = template.split('\n')
+
+        if index:
+            # Show with line numbers
+            result = [f"{template_name}:"]
+            for i, line in enumerate(lines, 1):
+                result.append(f'{i}: "{line}"')
+            return '\n'.join(result)
+        else:
+            # Show raw format (for copying to code)
+            return f'{template_name} = """\n{template}\n"""'
+
+    def update_template(self, line_num: int, new_text: str) -> None:
+        """
+        Update a single line in the template.
+
+        Args:
+            line_num: Line number to update (1-indexed)
+            new_text: New text for that line
+
+        Example:
+            >>> discovery.update_template(3, "Discovered: {discovery_year}  Type: {hc_type}")
+            >>> discovery.update_template(20, "Custom footer")  # Adds padding if needed
+        """
+        if line_num < 1:
+            raise ValueError("Line number must be >= 1")
+
+        template = self._get_current_template()
+        lines = template.split('\n')
+
+        # Pad with empty lines if needed
+        while len(lines) < line_num:
+            lines.append("")
+
+        # Update the line (convert to 0-indexed)
+        lines[line_num - 1] = new_text
+
+        # Save custom template
+        entity_type = self._get_entity_type()
+        self._db.save_template(entity_type, '\n'.join(lines))
+
+    def reset_template(self) -> bool:
+        """
+        Reset template to default, removing any customizations.
+
+        Returns:
+            True if a custom template was removed, False if no custom template existed.
+
+        Example:
+            >>> discovery.reset_template()
+            True
+        """
+        entity_type = self._get_entity_type()
+        return self._db.delete_template(entity_type)
 
     def _get_primary_id_pattern(self) -> Optional[str]:
         """
@@ -755,6 +993,8 @@ class Field(RelatedTableMixin):
         >>> print(troll.production(2025, 8))
         {'oil_sm3': 12450, 'gas_msm3': 119.2, ...}
     """
+
+    _entity_type = "field"
 
     def __init__(self, data: pd.Series, db: "Database"):
         """
@@ -1366,6 +1606,8 @@ class Discovery(RelatedTableMixin):
         >>> print(johan.resources)  # Resource estimates
     """
 
+    _entity_type = "discovery"
+
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
         self._db = db
@@ -1599,6 +1841,8 @@ class Wellbore(RelatedTableMixin):
         >>> print(well.formation_tops)  # Stratigraphy
         >>> print(well.dst_results)  # Flow tests
     """
+
+    _entity_type = "wellbore"
 
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
@@ -1958,6 +2202,8 @@ class Company(RelatedTableMixin):
         >>> print(equinor.operated_fields)
     """
 
+    _entity_type = "company"
+
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
         self._db = db
@@ -2140,6 +2386,8 @@ class License(RelatedTableMixin):
         >>> print(pl001.licensees)  # Current licensees
         >>> print(pl001.fields)  # Related fields
     """
+
+    _entity_type = "license"
 
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
@@ -2535,7 +2783,7 @@ class Entity:
         """The source table name."""
         return self._table_name
 
-    def related(self, table_name: str) -> pd.DataFrame:
+    def related(self, table_name: str) -> "RelatedData":
         """
         Get related rows from another table.
 
@@ -2550,15 +2798,16 @@ class Entity:
             table_name: Name of the table to query
 
         Returns:
-            DataFrame with matching rows from the target table
+            RelatedData with matching rows (use .df for DataFrame, .data for display)
 
         Example:
             >>> reserves = fp.field_reserves(43506)
             >>> field_df = reserves.related('field')
+            >>> print(field_df.data)  # Nice output
         """
         target_df = self._db.get_or_none(table_name)
         if target_df is None:
-            return pd.DataFrame()
+            return RelatedData(pd.DataFrame(), table_name)
 
         # Find ID columns in both
         my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
@@ -2568,7 +2817,7 @@ class Entity:
         common = self.find_common_id_columns(my_id_cols, target_id_cols)
 
         if not common:
-            return pd.DataFrame()
+            return RelatedData(pd.DataFrame(), table_name)
 
         # Prioritize the ID column that best matches the target table name
         best_match = None
@@ -2606,9 +2855,10 @@ class Entity:
         my_col, target_col = best_match
         my_value = self._data.get(my_col)
         if pd.notna(my_value):
-            return target_df[target_df[target_col] == my_value]
+            result = target_df[target_df[target_col] == my_value]
+            return RelatedData(result, table_name)
 
-        return pd.DataFrame()
+        return RelatedData(pd.DataFrame(), table_name)
 
     def _get_primary_id_pattern(self) -> Optional[str]:
         """
@@ -2845,6 +3095,8 @@ class Facility(RelatedTableMixin):
         >>> print(troll_a.field_name)  # Associated field
     """
 
+    _entity_type = "facility"
+
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
         self._db = db
@@ -2930,6 +3182,8 @@ class Pipeline(RelatedTableMixin):
         >>> print(pipe.length)
     """
 
+    _entity_type = "pipeline"
+
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
         self._db = db
@@ -3014,6 +3268,8 @@ class Play(RelatedTableMixin):
         >>> print(play.status)
     """
 
+    _entity_type = "play"
+
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
         self._db = db
@@ -3073,6 +3329,8 @@ class Block(RelatedTableMixin):
         >>> print(block.quadrant)
         >>> print(block.main_area)
     """
+
+    _entity_type = "block"
 
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
@@ -3138,6 +3396,8 @@ class Quadrant(RelatedTableMixin):
         >>> print(quad.main_area)
     """
 
+    _entity_type = "quadrant"
+
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
         self._db = db
@@ -3191,6 +3451,8 @@ class TUF(RelatedTableMixin):
         >>> tuf = fp.tuf("KOLLSNES")
         >>> print(tuf.kind)
     """
+
+    _entity_type = "tuf"
 
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
@@ -3264,6 +3526,8 @@ class Seismic(RelatedTableMixin):
         >>> print(survey.status)
         >>> print(survey.area)
     """
+
+    _entity_type = "seismic"
 
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
@@ -3351,6 +3615,8 @@ class Stratigraphy(RelatedTableMixin):
         >>> print(strat.type)
     """
 
+    _entity_type = "stratigraphy"
+
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data
         self._db = db
@@ -3414,6 +3680,8 @@ class BusinessArrangement(RelatedTableMixin):
         >>> print(ba.status)
         >>> print(ba.licensees)
     """
+
+    _entity_type = "business_arrangement"
 
     def __init__(self, data: pd.Series, db: "Database"):
         self._data = data

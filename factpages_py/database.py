@@ -140,6 +140,14 @@ class Database:
                     category TEXT
                 )
             """)
+            # Template customization storage
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS _templates (
+                    entity_type TEXT PRIMARY KEY,
+                    template TEXT,
+                    updated_at TEXT
+                )
+            """)
             conn.commit()
 
     def _get_db_path(self, dataset: str) -> Path:
@@ -868,3 +876,69 @@ class Database:
             with sqlite3.connect(self.sideload_db_path) as conn:
                 conn.execute("VACUUM")
             print(f"Vacuumed {self.sideload_db_path.name}")
+
+    # =========================================================================
+    # Template Customization
+    # =========================================================================
+
+    def save_template(self, entity_type: str, template: str) -> None:
+        """
+        Save a custom template for an entity type.
+
+        Args:
+            entity_type: Entity type (e.g., 'field', 'discovery')
+            template: The template string (newline-separated lines)
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO _templates (entity_type, template, updated_at)
+                VALUES (?, ?, ?)
+            """, (entity_type, template, datetime.now().isoformat()))
+            conn.commit()
+
+    def get_template(self, entity_type: str) -> Optional[str]:
+        """
+        Get custom template for an entity type.
+
+        Args:
+            entity_type: Entity type (e.g., 'field', 'discovery')
+
+        Returns:
+            Custom template string or None if no custom template exists
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT template FROM _templates WHERE entity_type = ?",
+                (entity_type,)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def delete_template(self, entity_type: str) -> bool:
+        """
+        Delete custom template, reverting to default.
+
+        Args:
+            entity_type: Entity type (e.g., 'field', 'discovery')
+
+        Returns:
+            True if template was deleted, False if no custom template existed
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "DELETE FROM _templates WHERE entity_type = ?",
+                (entity_type,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def list_custom_templates(self) -> list[str]:
+        """
+        List all entity types that have custom templates.
+
+        Returns:
+            List of entity type names
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT entity_type FROM _templates")
+            return [row[0] for row in cursor.fetchall()]

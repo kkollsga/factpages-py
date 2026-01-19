@@ -647,6 +647,8 @@ def render_entity(entity: Any, entity_type: str) -> str:
     """
     Render an entity using its template.
 
+    Uses custom template if one exists in the database, otherwise uses default.
+
     Args:
         entity: The entity object (Field, Discovery, etc.)
         entity_type: Type of entity ('field', 'discovery', etc.)
@@ -657,5 +659,9 @@ def render_entity(entity: Any, entity_type: str) -> str:
     if entity_type not in TEMPLATES:
         return f"<{entity.__class__.__name__}: {getattr(entity, 'name', 'unknown')}>"
 
+    # Check for custom template in database
+    custom_template = entity._db.get_template(entity_type)
+    template = custom_template if custom_template is not None else TEMPLATES[entity_type]
+
     renderer = TemplateRenderer(entity, entity._db, entity_type)
-    return renderer.render(TEMPLATES[entity_type])
+    return renderer.render(template)
