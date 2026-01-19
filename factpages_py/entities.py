@@ -59,6 +59,73 @@ def clear_alias_cache() -> None:
 # Display Wrapper Classes
 # =============================================================================
 
+class EntityData:
+    """
+    Wrapper for entity data that provides both formatted display and attribute access.
+
+    When printed, shows all columns with truncated long values.
+    Attribute access returns full values.
+
+    Example:
+        >>> print(troll.data)
+        fldNpdidField: 46437
+        fldName: TROLL
+        _geometry: {"type": "Polygon", "coo...40640798473664]]]}
+
+        >>> troll.data._geometry  # Full value
+        '{"type": "Polygon", "coordinates": [[[4.172...]]}'
+    """
+
+    MAX_VALUE_LENGTH = 60  # Max display length for values
+
+    def __init__(self, data: pd.Series):
+        self._data = data
+
+    def __getattr__(self, name: str) -> Any:
+        """Allow attribute access to get full values."""
+        # _data is handled by normal attribute lookup, not __getattr__
+        if name in self._data.index:
+            return self._data[name]
+        raise AttributeError(f"No column '{name}'")
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow dict-style access: entity.data['column_name']"""
+        return self._data[key]
+
+    def _truncate(self, value: Any) -> str:
+        """Truncate a value for display, keeping start and end visible."""
+        s = str(value)
+        if len(s) <= self.MAX_VALUE_LENGTH:
+            return s
+        # Keep some from start and end, with ... in middle
+        keep = (self.MAX_VALUE_LENGTH - 3) // 2
+        return s[:keep] + "..." + s[-keep:]
+
+    def __str__(self) -> str:
+        """Formatted string with truncated values."""
+        lines = []
+        for col in self._data.index:
+            value = self._data[col]
+            display_value = self._truncate(value)
+            lines.append(f"{col}: {display_value}")
+        return "\n".join(lines)
+
+    def __repr__(self) -> str:
+        return f"<EntityData: {len(self._data)} columns>"
+
+    def keys(self) -> list:
+        """Return column names."""
+        return list(self._data.index)
+
+    def values(self) -> list:
+        """Return all values."""
+        return list(self._data.values)
+
+    def items(self):
+        """Return (column, value) pairs."""
+        return zip(self._data.index, self._data.values)
+
+
 class RelatedTableMixin:
     """
     Mixin that provides dynamic related table access for entity classes.
@@ -235,25 +302,25 @@ class RelatedTableMixin:
         return None
 
     @property
-    def data(self) -> str:
+    def data(self) -> "EntityData":
         """
         Display all column names and values for this entity.
 
-        Returns a formatted string showing every column and its value,
-        similar to pandas iloc but without column limits.
+        Returns an EntityData object that:
+        - Prints as a formatted string with truncated long values
+        - Allows attribute access for full values: entity.data._geometry
 
         Example:
             >>> print(troll.data)
             fldNpdidField: 46437
             fldName: TROLL
-            fldCurrentActivityStatus: Producing
+            _geometry: {"type": "Polygon", "coo...40640798473664]]]}
             ...
+
+            >>> troll.data._geometry  # Full value
+            '{"type": "Polygon", "coordinates": [[[4.172...]]}'
         """
-        lines = []
-        for col in self._data.index:
-            value = self._data[col]
-            lines.append(f"{col}: {value}")
-        return "\n".join(lines)
+        return EntityData(self._data)
 
     @property
     def df(self) -> pd.DataFrame:
