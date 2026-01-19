@@ -942,3 +942,285 @@ class Database:
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute("SELECT entity_type FROM _templates")
             return [row[0] for row in cursor.fetchall()]
+
+    # =========================================================================
+    # API Metadata (table and column descriptions)
+    # =========================================================================
+
+    def _init_metadata_tables(self) -> None:
+        """Initialize API metadata tables if they don't exist."""
+        with sqlite3.connect(self.db_path) as conn:
+            # Table descriptions from Metadata FeatureServer
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS _table_descriptions (
+                    table_name TEXT PRIMARY KEY,
+                    table_id TEXT,
+                    description TEXT,
+                    fetched_at TEXT
+                )
+            """)
+            # Column/attribute descriptions from Metadata FeatureServer
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS _column_descriptions (
+                    table_name TEXT,
+                    column_name TEXT,
+                    display_text TEXT,
+                    data_type TEXT,
+                    description TEXT,
+                    PRIMARY KEY (table_name, column_name)
+                )
+            """)
+            conn.commit()
+
+    def save_table_descriptions(self, descriptions: list[dict]) -> int:
+        """
+        Save table descriptions from Metadata API.
+
+        Args:
+            descriptions: List of dicts with keys: id, TableName, Description
+
+        Returns:
+            Number of descriptions saved
+        """
+        self._init_metadata_tables()
+        fetched_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            for desc in descriptions:
+                conn.execute("""
+                    INSERT OR REPLACE INTO _table_descriptions
+                    (table_name, table_id, description, fetched_at)
+                    VALUES (?, ?, ?, ?)
+                """, (
+                    desc.get('TableName', '').lower(),
+                    str(desc.get('id', '')),
+                    desc.get('Description', ''),
+                    fetched_at
+                ))
+            conn.commit()
+
+        return len(descriptions)
+
+    def save_column_descriptions(self, descriptions: list[dict]) -> int:
+        """
+        Save column descriptions from Metadata API.
+
+        Args:
+            descriptions: List of dicts with keys: TableName, Tag, DisplayText, DataType, Description
+
+        Returns:
+            Number of descriptions saved
+        """
+        self._init_metadata_tables()
+
+        with sqlite3.connect(self.db_path) as conn:
+            for desc in descriptions:
+                conn.execute("""
+                    INSERT OR REPLACE INTO _column_descriptions
+                    (table_name, column_name, display_text, data_type, description)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (
+                    desc.get('TableName', '').lower(),
+                    desc.get('Tag', ''),
+                    desc.get('DisplayText', ''),
+                    desc.get('DataType', ''),
+                    desc.get('Description', '')
+                ))
+            conn.commit()
+
+        return len(descriptions)
+
+    def get_table_description(self, table_name: str) -> Optional[str]:
+        """
+        Get the description for a table.
+
+        Args:
+            table_name: Table name (case-insensitive)
+
+        Returns:
+            Description string or None if not found
+        """
+        self._init_metadata_tables()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT description FROM _table_descriptions WHERE table_name = ?",
+                (table_name.lower(),)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def get_column_description(self, table_name: str, column_name: str) -> Optional[dict]:
+        """
+        Get description for a specific column.
+
+        Args:
+            table_name: Table name
+            column_name: Column name
+
+        Returns:
+            Dict with display_text, data_type, description or None
+        """
+        self._init_metadata_tables()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT display_text, data_type, description
+                FROM _column_descriptions
+                WHERE table_name = ? AND column_name = ?
+            """, (table_name.lower(), column_name))
+            row = cursor.fetchone()
+            if row:
+                return {
+                    'display_text': row[0],
+                    'data_type': row[1],
+                    'description': row[2]
+                }
+            return None
+
+    def get_all_column_descriptions(self, table_name: str) -> dict[str, dict]:
+        """
+        Get all column descriptions for a table.
+
+        Args:
+            table_name: Table name
+
+        Returns:
+            Dict mapping column names to their description info
+        """
+        self._init_metadata_tables()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("""
+                SELECT column_name, display_text, data_type, description
+                FROM _column_descriptions
+                WHERE table_name = ?
+            """, (table_name.lower(),))
+
+            result = {}
+            for row in cursor:
+                result[row[0]] = {
+                    'display_text': row[1],
+                    'data_type': row[2],
+                    'description': row[3]
+                }
+            return result
+
+    def has_metadata(self) -> bool:
+        """Check if API metadata has been fetched."""
+        self._init_metadata_tables()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM _table_descriptions")
+            count = cursor.fetchone()[0]
+            return count > 0
+
+    def get_metadata_age_days(self) -> Optional[int]:
+        """Get age of metadata in days, or None if not fetched."""
+        self._init_metadata_tables()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT fetched_at FROM _table_descriptions LIMIT 1"
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                fetched = datetime.fromisoformat(row[0])
+                return (datetime.now() - fetched).days
+            return None
+
+    # =========================================================================
+    # Remote Record Counts (expected counts from API)
+    # =========================================================================
+
+    def _init_remote_counts_table(self) -> None:
+        """Initialize remote counts table if it doesn't exist."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS _remote_counts (
+                    table_name TEXT PRIMARY KEY,
+                    count INTEGER,
+                    fetched_at TEXT
+                )
+            """)
+            conn.commit()
+
+    def save_remote_counts(self, counts: dict[str, int]) -> int:
+        """
+        Save remote record counts from API.
+
+        Args:
+            counts: Dict mapping table names to their remote counts
+
+        Returns:
+            Number of counts saved
+        """
+        self._init_remote_counts_table()
+        fetched_at = datetime.now().isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            for table_name, count in counts.items():
+                conn.execute("""
+                    INSERT OR REPLACE INTO _remote_counts
+                    (table_name, count, fetched_at)
+                    VALUES (?, ?, ?)
+                """, (table_name.lower(), count, fetched_at))
+            conn.commit()
+
+        return len(counts)
+
+    def get_remote_count(self, table_name: str) -> Optional[int]:
+        """
+        Get expected remote count for a table.
+
+        Args:
+            table_name: Table name (case-insensitive)
+
+        Returns:
+            Expected count or None if not fetched
+        """
+        self._init_remote_counts_table()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT count FROM _remote_counts WHERE table_name = ?",
+                (table_name.lower(),)
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    def get_all_remote_counts(self) -> dict[str, int]:
+        """
+        Get all remote counts.
+
+        Returns:
+            Dict mapping table names to their expected counts
+        """
+        self._init_remote_counts_table()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT table_name, count FROM _remote_counts")
+            return {row[0]: row[1] for row in cursor}
+
+    def get_remote_counts_age_days(self) -> Optional[int]:
+        """Get age of remote counts in days, or None if not fetched."""
+        self._init_remote_counts_table()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT fetched_at FROM _remote_counts LIMIT 1"
+            )
+            row = cursor.fetchone()
+            if row and row[0]:
+                fetched = datetime.fromisoformat(row[0])
+                return (datetime.now() - fetched).days
+            return None
+
+    def has_remote_counts(self) -> bool:
+        """Check if remote counts have been fetched."""
+        self._init_remote_counts_table()
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute("SELECT COUNT(*) FROM _remote_counts")
+            count = cursor.fetchone()[0]
+            return count > 0

@@ -35,7 +35,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
-from .datasets import LAYERS, TABLES, FACTMAPS_LAYERS
+from .datasets import LAYERS, TABLES, FACTMAPS_LAYERS, METADATA_BASE_URL, METADATA_TABLES
 from .database import Database
 from .entities import (
     Field, Discovery, Wellbore, Company, License, Entity,
@@ -1132,6 +1132,9 @@ class Factpages:
         from .sync import SyncEngine, IfMissing, AlwaysSync
         from .database import FILE_MAPPING
 
+        # Ensure API metadata is available for informative error messages
+        self._fetch_metadata(progress=progress)
+
         engine = SyncEngine(self, self.db)
         strategy = AlwaysSync() if force else IfMissing()
 
@@ -1436,6 +1439,318 @@ class Factpages:
         from .sync import SyncEngine
         engine = SyncEngine(self, self.db)
         return engine.fetch_all(progress=progress, workers=workers)
+
+    # =========================================================================
+    # API Metadata
+    # =========================================================================
+
+    def _fetch_metadata(self, progress: bool = True, force: bool = False) -> dict:
+        """
+        Fetch table/column descriptions and remote record counts.
+
+        This is called automatically before data downloads to enable
+        informative error messages and download validation.
+
+        Args:
+            progress: Show progress messages
+            force: Force refetch even if metadata exists
+
+        Returns:
+            Dict with fetch results
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        # Check freshness - metadata refreshes every 30 days, counts every 3 days
+        metadata_fresh = False
+        counts_fresh = False
+
+        if not force:
+            if self.db.has_metadata():
+                age = self.db.get_metadata_age_days()
+                metadata_fresh = age is not None and age < 30
+
+            if self.db.has_remote_counts():
+                age = self.db.get_remote_counts_age_days()
+                counts_fresh = age is not None and age < 3
+
+        if metadata_fresh and counts_fresh:
+            return {'status': 'cached', 'metadata_age_days': self.db.get_metadata_age_days(),
+                    'counts_age_days': self.db.get_remote_counts_age_days()}
+
+        results = {'tables': 0, 'columns': 0, 'counts': 0, 'errors': []}
+
+        # Determine what to fetch
+        fetch_metadata = not metadata_fresh or force
+        fetch_counts = not counts_fresh or force
+
+        if progress:
+            parts = []
+            if fetch_metadata:
+                parts.append("metadata")
+            if fetch_counts:
+                parts.append("counts")
+            print(f"Fetching API {' & '.join(parts)}...", end="", flush=True)
+
+        try:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = {}
+
+                if fetch_metadata:
+                    # Fetch table descriptions (Table 10)
+                    futures[executor.submit(self._fetch_table_descriptions)] = 'tables'
+                    # Fetch column descriptions (Table 11)
+                    futures[executor.submit(self._fetch_column_descriptions)] = 'columns'
+
+                if fetch_counts:
+                    # Fetch remote counts for all tables
+                    futures[executor.submit(self._fetch_all_remote_counts)] = 'counts'
+
+                for future in as_completed(futures):
+                    key = futures[future]
+                    try:
+                        result = future.result()
+                        results[key] = result
+                    except Exception as e:
+                        results['errors'].append(f"{key}: {e}")
+
+            if progress:
+                parts = []
+                if results['tables']:
+                    parts.append(f"{results['tables']} tables")
+                if results['columns']:
+                    parts.append(f"{results['columns']} columns")
+                if results['counts']:
+                    parts.append(f"{results['counts']} counts")
+                print(f" {', '.join(parts)}")
+
+            results['status'] = 'fetched'
+
+        except Exception as e:
+            results['status'] = 'error'
+            results['errors'].append(str(e))
+            if progress:
+                print(f" error: {e}")
+
+        return results
+
+    def _fetch_table_descriptions(self) -> int:
+        """Fetch table descriptions from Metadata FeatureServer."""
+        table_url = f"{METADATA_BASE_URL}/{METADATA_TABLES['table_descriptions']}/query"
+        params = {'where': '1=1', 'outFields': '*', 'f': 'json'}
+
+        response = self._session.get(table_url, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        if 'features' in data:
+            descriptions = [f['attributes'] for f in data['features']]
+            return self.db.save_table_descriptions(descriptions)
+        return 0
+
+    def _fetch_column_descriptions(self) -> int:
+        """Fetch column descriptions from Metadata FeatureServer."""
+        col_url = f"{METADATA_BASE_URL}/{METADATA_TABLES['attribute_descriptions']}/query"
+        params = {'where': '1=1', 'outFields': '*', 'f': 'json'}
+
+        response = self._session.get(col_url, params=params, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+
+        if 'features' in data:
+            descriptions = [f['attributes'] for f in data['features']]
+            return self.db.save_column_descriptions(descriptions)
+        return 0
+
+    def _fetch_all_remote_counts(self) -> int:
+        """Fetch remote record counts for all tables in parallel."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        all_datasets = list({**LAYERS, **TABLES}.keys())
+        counts = {}
+
+        def fetch_count(dataset: str) -> tuple[str, int]:
+            try:
+                count = self.get_count(dataset)
+                return dataset, count
+            except Exception:
+                return dataset, -1  # Mark as failed
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(fetch_count, ds): ds for ds in all_datasets}
+
+            for future in as_completed(futures):
+                dataset, count = future.result()
+                if count >= 0:
+                    counts[dataset] = count
+
+        return self.db.save_remote_counts(counts)
+
+    def describe(self, table_name: str, column: Optional[str] = None) -> str:
+        """
+        Get description for a table or column from API metadata.
+
+        Args:
+            table_name: Table name (e.g., 'field', 'wellbore')
+            column: Optional column name (e.g., 'fldName', 'wlbTotalDepth')
+
+        Returns:
+            Description string
+
+        Example:
+            >>> fp.describe('field')
+            'Fields on the Norwegian continental shelf where oil and/or gas is being or will be produced'
+
+            >>> fp.describe('wellbore', 'wlbTotalDepth')
+            'Total depth: Total vertical depth of the wellbore in meters'
+        """
+        # Ensure we have metadata
+        if not self.db.has_metadata():
+            self._fetch_metadata(progress=False)
+
+        if column:
+            info = self.db.get_column_description(table_name, column)
+            if info:
+                display = info.get('display_text', column)
+                desc = info.get('description', 'No description available')
+                dtype = info.get('data_type', '')
+                return f"{display}: {desc}" + (f" [{dtype}]" if dtype else "")
+            return f"No description found for column '{column}' in table '{table_name}'"
+
+        desc = self.db.get_table_description(table_name)
+        return desc if desc else f"No description found for table '{table_name}'"
+
+    def column_info(self, table_name: str) -> pd.DataFrame:
+        """
+        Get all column descriptions for a table as a DataFrame.
+
+        Args:
+            table_name: Table name
+
+        Returns:
+            DataFrame with columns: column_name, display_text, data_type, description
+
+        Example:
+            >>> fp.column_info('field')
+                    column_name    display_text  data_type  description
+            0       fldName        Field name    nvarchar   Name of the field
+            1       fldNpdidField  NPDID Field   int        Unique identifier...
+        """
+        # Ensure we have metadata
+        if not self.db.has_metadata():
+            self._fetch_metadata(progress=False)
+
+        cols = self.db.get_all_column_descriptions(table_name)
+        if not cols:
+            return pd.DataFrame(columns=['column_name', 'display_text', 'data_type', 'description'])
+
+        rows = [
+            {'column_name': name, **info}
+            for name, info in cols.items()
+        ]
+        return pd.DataFrame(rows)
+
+    def tables(self, downloaded_only: bool = False) -> pd.DataFrame:
+        """
+        Get a list of all available tables with metadata and download status.
+
+        Returns a comprehensive overview of all tables in the API including:
+        - Table name and ID
+        - Description from metadata
+        - Whether the table is downloaded locally
+        - Local record count and last sync date
+
+        Args:
+            downloaded_only: If True, only show tables that are downloaded locally
+
+        Returns:
+            DataFrame with columns:
+            - table_name: Name of the table
+            - table_id: API layer/table ID
+            - description: Human-readable description
+            - downloaded: Whether table exists locally
+            - local_count: Number of records in local database
+            - expected_count: Expected count from API (for comparison)
+            - last_sync: Date of last sync (or None)
+            - type: 'layer' (has geometry) or 'table' (no geometry)
+
+        Example:
+            >>> fp.tables()
+                table_name  table_id  description                          downloaded  local_count  expected_count  last_sync   type
+            0   field       7100      Fields on the Norwegian...           True        141          141             2024-01-15  layer
+            1   wellbore    5000      Primary table for wellbores...       True        9731         9731            2024-01-15  layer
+            2   company     1200      Company information                  False       0            185             None        table
+
+            >>> # Show only downloaded tables
+            >>> fp.tables(downloaded_only=True)
+
+            >>> # Find tables with count mismatches
+            >>> t = fp.tables()
+            >>> t[t['local_count'] != t['expected_count']]
+        """
+        # Ensure we have metadata and counts
+        if not self.db.has_metadata() or not self.db.has_remote_counts():
+            self._fetch_metadata(progress=False)
+
+        # Get all available tables from LAYERS and TABLES
+        all_tables = []
+
+        for name, table_id in LAYERS.items():
+            all_tables.append({
+                'table_name': name,
+                'table_id': table_id,
+                'type': 'layer'
+            })
+
+        for name, table_id in TABLES.items():
+            all_tables.append({
+                'table_name': name,
+                'table_id': table_id,
+                'type': 'table'
+            })
+
+        # Enrich with metadata and local status
+        rows = []
+        for table in all_tables:
+            name = table['table_name']
+
+            # Get description from metadata
+            description = self.db.get_table_description(name)
+
+            # Get expected count from remote counts
+            expected_count = self.db.get_remote_count(name)
+
+            # Check local status
+            downloaded = self.db.has_dataset(name)
+            local_count = 0
+            last_sync = None
+
+            if downloaded:
+                local_count = self.db.get_record_count(name)
+                sync_time = self.db.get_last_sync(name)
+                if sync_time:
+                    last_sync = sync_time.strftime('%Y-%m-%d')
+
+            if downloaded_only and not downloaded:
+                continue
+
+            rows.append({
+                'table_name': name,
+                'table_id': table['table_id'],
+                'description': description or '',
+                'downloaded': downloaded,
+                'local_count': local_count,
+                'expected_count': expected_count,
+                'last_sync': last_sync,
+                'type': table['type']
+            })
+
+        df = pd.DataFrame(rows)
+
+        # Sort by table_name
+        if not df.empty:
+            df = df.sort_values('table_name').reset_index(drop=True)
+
+        return df
 
     # =========================================================================
     # Convenience Methods

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from .database import Database, FILE_MAPPING
+from .datasets import LAYERS, TABLES
 
 if TYPE_CHECKING:
     from .client import Factpages
@@ -464,10 +465,29 @@ class SyncEngine:
             result["synced"] = True
             result["record_count"] = len(df)
             result["reason"] = "synced"
+
+            # Validate against expected count
+            expected_count = self.db.get_remote_count(dataset)
+            if expected_count is not None:
+                result["expected_count"] = expected_count
+                if len(df) != expected_count:
+                    result["count_mismatch"] = True
+                    result["count_diff"] = len(df) - expected_count
+                    if progress:
+                        print(f"  {dataset}: downloaded {len(df):,} records (expected {expected_count:,}, diff: {len(df) - expected_count:+,})")
         else:
-            result["reason"] = f"error: {error}"
-            if progress:
-                print(f"  {dataset}: FAILED - {error}")
+            # Include table description in error message for context
+            description = self.db.get_table_description(dataset)
+            if description:
+                result["reason"] = f"error: {error}"
+                result["description"] = description
+                if progress:
+                    print(f"  {dataset}: FAILED - {error}")
+                    print(f"    ({description})")
+            else:
+                result["reason"] = f"error: {error}"
+                if progress:
+                    print(f"  {dataset}: FAILED - {error}")
 
         result["duration_seconds"] = (datetime.now() - start_time).total_seconds()
         return result
@@ -757,13 +777,20 @@ class SyncEngine:
                         status = "OK" if result["synced"] else result.get("reason", "skipped")
                         print(f"  {dataset}: {status}")
                 except Exception as e:
-                    results.append({
+                    # Include table description for context
+                    description = self.db.get_table_description(dataset)
+                    error_result = {
                         "dataset": dataset,
                         "synced": False,
                         "reason": f"error: {e}"
-                    })
+                    }
+                    if description:
+                        error_result["description"] = description
+                    results.append(error_result)
                     if progress:
                         print(f"  {dataset}: ERROR - {e}")
+                        if description:
+                            print(f"    ({description})")
 
         if progress:
             synced = sum(1 for r in results if r.get("synced"))
@@ -944,8 +971,8 @@ class SyncEngine:
                     self._print_stats_report(cached)
                 return cached
 
-        # Fetch fresh stats from API (deduplicate - some datasets appear in multiple categories)
-        all_datasets = list(dict.fromkeys(ds for cat in FILE_MAPPING.values() for ds in cat))
+        # Fetch fresh stats from API - use actual available datasets from LAYERS and TABLES
+        all_datasets = list({**LAYERS, **TABLES}.keys())
 
         if progress:
             print(f"Fetching stats for {len(all_datasets)} datasets from API...")
@@ -1363,10 +1390,18 @@ class SyncEngine:
         synced = [r for r in results if r.get('synced')]
         failed = [r for r in results if not r.get('synced')]
 
+        # Include descriptions in failed results
+        failed_info = []
+        for r in failed:
+            info = {'dataset': r['dataset'], 'reason': r.get('reason')}
+            if r.get('description'):
+                info['description'] = r['description']
+            failed_info.append(info)
+
         return {
             'synced': [r['dataset'] for r in synced],
             'synced_count': len(synced),
-            'failed': [{'dataset': r['dataset'], 'reason': r.get('reason')} for r in failed],
+            'failed': failed_info,
             'failed_count': len(failed),
             'count_changed_found': len(count_changed),
             'total_fixed': len(synced),
@@ -1431,10 +1466,18 @@ class SyncEngine:
         synced = [r for r in results if r.get('synced')]
         failed = [r for r in results if not r.get('synced')]
 
+        # Include descriptions in failed results
+        failed_info = []
+        for r in failed:
+            info = {'dataset': r['dataset'], 'reason': r.get('reason')}
+            if r.get('description'):
+                info['description'] = r['description']
+            failed_info.append(info)
+
         return {
             'synced': [r['dataset'] for r in synced],
             'synced_count': len(synced),
-            'failed': [{'dataset': r['dataset'], 'reason': r.get('reason')} for r in failed],
+            'failed': failed_info,
             'failed_count': len(failed),
             'already_had': stats['total_datasets'] - len(missing),
             'total_datasets': stats['total_datasets'],

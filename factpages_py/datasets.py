@@ -263,3 +263,14 @@ SUPPORTING_DATASETS = [
 # Note: Production data is NOT available via this API
 # Use Sodir FactPages downloads for production data
 PRODUCTION_DATASETS = []
+
+
+# =============================================================================
+# Metadata Service (table and column descriptions)
+# =============================================================================
+METADATA_BASE_URL = "https://factmaps.sodir.no/api/rest/services/DataService/Metadata/FeatureServer"
+
+METADATA_TABLES = {
+    "table_descriptions": 10,      # Human-readable descriptions of each table
+    "attribute_descriptions": 11,  # Human-readable descriptions of each column/field
+}
