@@ -35,8 +35,73 @@ from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import pandas as pd
 
+from datetime import datetime, timezone
 from .datasets import LAYERS, TABLES, FACTMAPS_LAYERS, METADATA_BASE_URL, METADATA_TABLES
 from .database import Database
+
+
+def _convert_unix_ts(val):
+    """Convert Unix timestamp (ms) to simplest appropriate format.
+
+    Returns: date, datetime, or datetime with ms - whichever is simplest.
+    """
+    if pd.isna(val) or val is None:
+        return None
+    try:
+        ms = int(val) % 1000
+        ts_seconds = val / 1000
+        dt = datetime.fromtimestamp(ts_seconds, tz=timezone.utc)
+
+        # Midnight with no ms → date only
+        if dt.hour == 0 and dt.minute == 0 and dt.second == 0 and ms == 0:
+            return dt.strftime('%Y-%m-%d')
+        # Has time but no ms → datetime
+        if ms == 0:
+            return dt.strftime('%Y-%m-%d %H:%M:%S')
+        # Has ms → include them
+        return dt.strftime('%Y-%m-%d %H:%M:%S') + f'.{ms:03d}'
+    except (ValueError, OSError, OverflowError, TypeError):
+        return None
+
+
+def _convert_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Convert Unix timestamp columns (milliseconds) to ISO date strings.
+
+    Detects columns with 'date' in the name (case-insensitive) and converts
+    large integer values (Unix timestamps in ms) to ISO format strings.
+
+    Args:
+        df: DataFrame with potential timestamp columns
+
+    Returns:
+        DataFrame with converted date columns
+    """
+    if df.empty:
+        return df
+
+    for col in df.columns:
+        # Check if column name suggests it's a date
+        if 'date' not in col.lower():
+            continue
+
+        # Check if column contains timestamp-like values
+        sample = df[col].dropna()
+        if sample.empty:
+            continue
+
+        first_val = sample.iloc[0]
+
+        # Unix timestamps in ms are typically 13 digits (> 1e12)
+        # and represent dates after year 2001
+        # Check for numeric types including numpy integers
+        try:
+            if float(first_val) > 1e12:
+                df[col] = df[col].apply(_convert_unix_ts)
+        except (ValueError, TypeError):
+            pass
+
+    return df
 from .entities import (
     Field, Discovery, Wellbore, Company, License, Entity,
     Facility, Pipeline, Play, Block, Quadrant, TUF, Seismic,
@@ -1073,6 +1138,9 @@ class Factpages:
             offset += batch_size
 
         df = pd.DataFrame(all_records)
+
+        # Convert Unix timestamp columns to ISO date strings
+        df = _convert_timestamp_columns(df)
 
         if store and not df.empty:
             self.db.put(dataset, df, source="api")
