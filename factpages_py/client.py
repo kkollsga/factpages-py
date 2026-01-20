@@ -1097,6 +1097,7 @@ class Factpages:
         Refresh datasets from API to local database.
 
         When called without arguments, performs maintenance:
+        - Uses cached stats to identify datasets needing refresh
         - Fetches datasets with row count mismatch (high priority)
         - Fetches stale datasets (older than max_stale_days)
         - Limited to limit_percent of total datasets by default
@@ -1107,6 +1108,7 @@ class Factpages:
             datasets: Specific dataset(s) to refresh. Options:
                 - None: Maintenance mode (fix mismatches + stale data)
                 - "all": All available datasets (75+ tables)
+                - "stats": Force refresh of stats/metadata only
                 - "field": Single table
                 - ["field", "discovery"]: Multiple tables
             category: Refresh all datasets in category ('entities', 'production', etc.)
@@ -1120,27 +1122,83 @@ class Factpages:
             Dict with refresh results
 
         Example:
-            >>> fp.refresh()  # Maintenance: fix mismatches + stale (max 10%)
-            >>> fp.refresh(limit_percent=50)  # More aggressive maintenance
+            >>> fp.refresh()  # Maintenance: uses cached stats, fix mismatches + stale
+            >>> fp.refresh('all')  # Download missing tables only
+            >>> fp.refresh('all', force=True)  # Force re-download all tables
+            >>> fp.refresh('stats')  # Force refresh stats/metadata
             >>> fp.refresh('field')  # Single table
-            >>> fp.refresh(['field', 'discovery'])  # Multiple tables
-            >>> fp.refresh('all')  # All 75+ tables
-            >>> fp.refresh('field', force=True)  # Force re-download
+            >>> fp.refresh('field', force=True)  # Force re-download single table
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
         from datetime import datetime
         from .sync import SyncEngine, IfMissing, AlwaysSync
         from .database import FILE_MAPPING
 
+        engine = SyncEngine(self, self.db)
+
+        # Handle "stats" special keyword - force metadata/stats refresh
+        if datasets == "stats":
+            if progress:
+                print("Refreshing stats and metadata...")
+            result = self._fetch_metadata(progress=progress, force=True)
+            # Also refresh stats cache
+            self.stats(progress=progress, force_refresh=True, workers=workers)
+            return {'status': 'stats_refreshed', **result}
+
+        # Handle "all" special keyword - smart check then download missing
+        if datasets == "all":
+            all_datasets = list({**LAYERS, **TABLES}.keys())
+
+            if force:
+                # Force mode: download everything
+                self._fetch_metadata(progress=progress)
+                return engine.sync_all(strategy=AlwaysSync(), progress=progress, workers=workers)
+
+            # Check what's already cached
+            missing = [ds for ds in all_datasets if not self.db.has_dataset(ds)]
+
+            if not missing:
+                if progress:
+                    print(f"All {len(all_datasets)} tables already cached")
+                return {'status': 'ok', 'cached': len(all_datasets), 'downloaded': 0}
+
+            if progress:
+                print(f"Downloading {len(missing)}/{len(all_datasets)} missing tables...")
+
+            # Fetch metadata for downloads
+            self._fetch_metadata(progress=False)
+
+            # Download only missing datasets
+            results = {'downloaded': [], 'cached': len(all_datasets) - len(missing)}
+            completed = 0
+
+            def sync_one(dataset: str) -> tuple[str, dict]:
+                result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
+                return dataset, result
+
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(sync_one, ds): ds for ds in missing}
+
+                for future in as_completed(futures):
+                    dataset, result = future.result()
+                    results[dataset] = result
+                    if result.get('synced'):
+                        results['downloaded'].append(dataset)
+                    completed += 1
+                    if progress:
+                        count = result.get('record_count', 0)
+                        print(f"  [{completed}/{len(missing)}] {dataset}: {count:,} records")
+
+            if progress:
+                print(f"Done: {len(results['downloaded'])} downloaded, {results['cached']} already cached")
+
+            return results
+
         # Ensure API metadata is available for informative error messages
         self._fetch_metadata(progress=progress)
 
-        engine = SyncEngine(self, self.db)
+        # Strategy for remaining cases
         strategy = AlwaysSync() if force else IfMissing()
-
-        # Handle "all" special keyword
-        if datasets == "all":
-            return engine.sync_all(strategy=strategy, progress=progress, workers=workers)
 
         # Handle string input (single dataset)
         if isinstance(datasets, str):
