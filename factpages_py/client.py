@@ -1203,7 +1203,6 @@ class Factpages:
             >>> fp.refresh('field', force=True)  # Force re-download single table
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
-        from datetime import datetime
         from .sync import SyncEngine, IfMissing, AlwaysSync
         from .database import FILE_MAPPING
 
@@ -1231,39 +1230,59 @@ class Factpages:
             missing = [ds for ds in all_datasets if not self.db.has_dataset(ds)]
 
             if not missing:
-                if progress:
-                    print(f"All {len(all_datasets)} tables already cached")
-                return {'status': 'ok', 'cached': len(all_datasets), 'downloaded': 0}
+                return {
+                    'status': 'ok',
+                    'cached': len(all_datasets),
+                    'downloaded': 0,
+                    'tables': {}
+                }
 
-            if progress:
-                print(f"Downloading {len(missing)}/{len(all_datasets)} missing tables...")
-
-            # Fetch metadata for downloads
+            # Fetch metadata for downloads (to get expected counts)
             self._fetch_metadata(progress=False)
+                        # Download only missing datasets with tqdm progress
+            results = {
+                'status': 'ok',
+                'downloaded': [],
+                'cached': len(all_datasets) - len(missing),
+                'tables': {}
+            }
 
-            # Download only missing datasets
-            results = {'downloaded': [], 'cached': len(all_datasets) - len(missing)}
-            completed = 0
-
-            def sync_one(dataset: str) -> tuple[str, dict]:
+            def sync_one(dataset: str) -> tuple[str, dict, float]:
+                import time as t
+                start = t.time()
                 result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
-                return dataset, result
+                elapsed = t.time() - start
+                return dataset, result, elapsed
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {executor.submit(sync_one, ds): ds for ds in missing}
+                futures = [executor.submit(sync_one, ds) for ds in missing]
 
-                for future in as_completed(futures):
-                    dataset, result = future.result()
-                    results[dataset] = result
+                if progress:
+                    from tqdm import tqdm
+                    iterator = tqdm(as_completed(futures), total=len(futures),
+                                   desc="Downloading", unit="table")
+                else:
+                    iterator = as_completed(futures)
+
+                for future in iterator:
+                    dataset, result, elapsed = future.result()
+
+                    # Build detailed table metadata
+                    actual_count = result.get('record_count', 0)
+                    expected = self.db.get_remote_count(dataset) or 0
+
+                    results['tables'][dataset] = {
+                        'dataset': dataset,
+                        'status': 'synced' if result.get('synced') else 'failed',
+                        'actual_records': actual_count,
+                        'expected_records': expected,
+                        'records_match': actual_count == expected,
+                        'duration_seconds': round(elapsed, 3),
+                        'error': result.get('error') if not result.get('synced') else None
+                    }
+
                     if result.get('synced'):
                         results['downloaded'].append(dataset)
-                    completed += 1
-                    if progress:
-                        count = result.get('record_count', 0)
-                        print(f"  [{completed}/{len(missing)}] {dataset}: {count:,} records")
-
-            if progress:
-                print(f"Done: {len(results['downloaded'])} downloaded, {results['cached']} already cached")
 
             return results
 
@@ -1301,25 +1320,37 @@ class Factpages:
 
             # Only download if there's something to download
             if to_download:
-                if progress:
-                    print(f"Downloading {len(to_download)} tables...")
-
-                completed = 0
-
-                def sync_one(dataset: str) -> tuple[str, dict]:
+                def sync_one(dataset: str) -> tuple[str, dict, float]:
+                    import time as t
+                    start = t.time()
                     result = engine.sync_dataset(dataset, strategy=strategy, progress=False)
-                    return dataset, result
+                    elapsed = t.time() - start
+                    return dataset, result, elapsed
 
                 with ThreadPoolExecutor(max_workers=workers) as executor:
-                    futures = {executor.submit(sync_one, ds): ds for ds in to_download}
+                    futures = [executor.submit(sync_one, ds) for ds in to_download]
 
-                    for future in as_completed(futures):
-                        dataset, result = future.result()
-                        results[dataset] = result
-                        completed += 1
-                        if progress:
-                            count = result.get('record_count', 0)
-                            print(f"  [{completed}/{len(to_download)}] {dataset}: {count:,} records")
+                    if progress:
+                        from tqdm import tqdm
+                        iterator = tqdm(as_completed(futures), total=len(futures),
+                                       desc="Downloading", unit="table")
+                    else:
+                        iterator = as_completed(futures)
+
+                    for future in iterator:
+                        dataset, result, elapsed = future.result()
+                        actual_count = result.get('record_count', 0)
+                        expected = self.db.get_remote_count(dataset) or 0
+
+                        results[dataset] = {
+                            'dataset': dataset,
+                            'status': 'synced' if result.get('synced') else 'failed',
+                            'actual_records': actual_count,
+                            'expected_records': expected,
+                            'records_match': actual_count == expected,
+                            'duration_seconds': round(elapsed, 3),
+                            'error': result.get('error') if not result.get('synced') else None
+                        }
 
         else:
             # Maintenance mode: ensure core entities + fix mismatches and stale datasets
@@ -1328,25 +1359,6 @@ class Factpages:
 
             core_entities = ['field', 'discovery', 'wellbore', 'facility', 'company', 'licence']
             missing_core = [ds for ds in core_entities if not self.db.has_dataset(ds)]
-
-            if progress:
-                print("refreshing...", end="", flush=True)
-
-            # Check if stats cache needs refresh
-            stats_cache_path = self.db.data_dir / "_stats_cache.json"
-            stats_stale = True
-            if stats_cache_path.exists():
-                try:
-                    import json as json_module
-                    with open(stats_cache_path) as f:
-                        cached = json_module.load(f)
-                    fetched_at = datetime.fromisoformat(cached.get('fetched_at', '2000-01-01'))
-                    stats_stale = (datetime.now() - fetched_at).days >= 3
-                except Exception:
-                    stats_stale = True
-
-            if stats_stale and progress:
-                print("fetching stats...", end="", flush=True)
 
             # Get stats - this returns pre-computed changed/stale lists
             stats = self.stats(progress=False, workers=workers)
@@ -1380,42 +1392,48 @@ class Factpages:
                 to_fetch.extend(stale_names[:remaining_slots])
 
             if not to_fetch:
-                if progress:
-                    print("db ok")
-                return {'status': 'ok', 'message': 'No datasets need refreshing'}
+                return {
+                    'status': 'ok',
+                    'message': 'No datasets need refreshing',
+                    'tables': {}
+                }
 
-            # Print what we're fetching
-            if progress:
-                print()  # New line after "refreshing..."
-                ds_list = str(to_fetch) if len(to_fetch) <= 6 else str(to_fetch[:5])[:-1] + f", ... +{len(to_fetch)-5} more]"
-                print(f"fetching {len(to_fetch)} {ds_list}")
-
-            # Download datasets
-            completed_datasets = []
-
-            def sync_one(dataset: str) -> tuple[str, dict]:
+            # Download datasets with tqdm progress
+            def sync_one(dataset: str) -> tuple[str, dict, float]:
+                start = time_module.time()
                 result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
-                return dataset, result
+                elapsed = time_module.time() - start
+                return dataset, result, elapsed
 
             with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = {executor.submit(sync_one, ds): ds for ds in to_fetch}
+                futures = [executor.submit(sync_one, ds) for ds in to_fetch]
 
-                for future in as_completed(futures):
-                    dataset, result = future.result()
+                if progress:
+                    from tqdm import tqdm
+                    iterator = tqdm(as_completed(futures), total=len(futures),
+                                   desc="Refreshing", unit="table")
+                else:
+                    iterator = as_completed(futures)
+
+                for future in iterator:
+                    dataset, result, elapsed = future.result()
                     priority = 'core' if dataset in missing_core else ('mismatch' if dataset in mismatched_names else 'stale')
-                    result['priority'] = priority
-                    results[dataset] = result
-                    completed_datasets.append(dataset)
 
-                    if progress:
-                        # Print completed datasets on same line, updating as we go
-                        quoted = [f"'{d}'" for d in completed_datasets[-5:]]
-                        print(f"\rcompleted: {', '.join(quoted)}" + (" ..." if len(completed_datasets) > 5 else ""), end="", flush=True)
+                    actual_count = result.get('record_count', 0)
+                    expected = self.db.get_remote_count(dataset) or 0
 
-            elapsed = time_module.time() - start_time
-            if progress:
-                print()  # New line after completed list
-                print(f"refresh completed, {len(to_fetch)} datasets fetched in {elapsed:.1f}s")
+                    results[dataset] = {
+                        'dataset': dataset,
+                        'status': 'synced' if result.get('synced') else 'failed',
+                        'priority': priority,
+                        'actual_records': actual_count,
+                        'expected_records': expected,
+                        'records_match': actual_count == expected,
+                        'duration_seconds': round(elapsed, 3),
+                        'error': result.get('error') if not result.get('synced') else None
+                    }
+
+            total_elapsed = time_module.time() - start_time
 
             results['_summary'] = {
                 'core_fetched': len(missing_core),
@@ -1423,7 +1441,7 @@ class Factpages:
                 'stale_count': len(stale_names),
                 'refreshed_count': len(to_fetch),
                 'limit_applied': len(to_fetch) >= max_to_refresh,
-                'elapsed_seconds': elapsed
+                'elapsed_seconds': round(total_elapsed, 2)
             }
 
         return results

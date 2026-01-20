@@ -198,7 +198,9 @@ class Database:
 
     def __del__(self):
         """Cleanup connections on garbage collection."""
-        self.close()
+        # Handle case where __init__ didn't complete fully
+        if hasattr(self, '_connections'):
+            self.close()
 
     # =========================================================================
     # Core Operations
@@ -291,6 +293,9 @@ class Database:
             conditions = []
             for col, val in where.items():
                 conditions.append(f'"{col}" = ?')
+                # Convert numpy types to Python native types for SQLite compatibility
+                if hasattr(val, 'item'):  # numpy scalar
+                    val = val.item()
                 params.append(val)
             query += " WHERE " + " AND ".join(conditions)
 
@@ -315,6 +320,10 @@ class Database:
         """
         if not self.has_dataset(dataset):
             return False
+
+        # Convert numpy types to Python native types for SQLite compatibility
+        if hasattr(value, 'item'):  # numpy scalar
+            value = value.item()
 
         db_path = self._get_db_path(dataset)
         conn = self._get_connection(db_path)
@@ -593,14 +602,14 @@ class Database:
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name != '_metadata'"
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
             )
             datasets.extend(row[0] for row in cursor)
 
         if include_sideloaded and self.sideload_db_path.exists():
             with sqlite3.connect(self.sideload_db_path) as conn:
                 cursor = conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name != '_metadata'"
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
                 )
                 datasets.extend(row[0] for row in cursor)
 
@@ -613,7 +622,7 @@ class Database:
 
         with sqlite3.connect(self.sideload_db_path) as conn:
             cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name != '_metadata'"
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE '\\_%' ESCAPE '\\'"
             )
             return sorted(row[0] for row in cursor)
 
