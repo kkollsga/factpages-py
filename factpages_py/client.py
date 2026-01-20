@@ -38,6 +38,7 @@ import pandas as pd
 from datetime import datetime, timezone
 from .datasets import LAYERS, TABLES, FACTMAPS_LAYERS, METADATA_BASE_URL, METADATA_TABLES
 from .database import Database
+from .parallel import parallel_sync, parallel_count
 
 
 def _convert_unix_ts(val):
@@ -1202,7 +1203,6 @@ class Factpages:
             >>> fp.refresh('field')  # Single table
             >>> fp.refresh('field', force=True)  # Force re-download single table
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
         from .sync import SyncEngine, IfMissing, AlwaysSync
         from .database import FILE_MAPPING
 
@@ -1247,42 +1247,21 @@ class Factpages:
                 'tables': {}
             }
 
-            def sync_one(dataset: str) -> tuple[str, dict, float]:
-                import time as t
-                start = t.time()
-                result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
-                elapsed = t.time() - start
-                return dataset, result, elapsed
+            # Use parallel_sync for consistent parallel fetching
+            sync_results = parallel_sync(
+                datasets=missing,
+                sync_fn=lambda ds: engine.sync_dataset(ds, strategy=AlwaysSync(), progress=False),
+                workers=workers,
+                progress=progress,
+                desc="Downloading",
+                get_expected_fn=lambda ds: self.db.get_remote_count(ds) or 0
+            )
 
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = [executor.submit(sync_one, ds) for ds in missing]
-
-                if progress:
-                    from tqdm import tqdm
-                    iterator = tqdm(as_completed(futures), total=len(futures),
-                                   desc="Downloading", unit="table")
-                else:
-                    iterator = as_completed(futures)
-
-                for future in iterator:
-                    dataset, result, elapsed = future.result()
-
-                    # Build detailed table metadata
-                    actual_count = result.get('record_count', 0)
-                    expected = self.db.get_remote_count(dataset) or 0
-
-                    results['tables'][dataset] = {
-                        'dataset': dataset,
-                        'status': 'synced' if result.get('synced') else 'failed',
-                        'actual_records': actual_count,
-                        'expected_records': expected,
-                        'records_match': actual_count == expected,
-                        'duration_seconds': round(elapsed, 3),
-                        'error': result.get('error') if not result.get('synced') else None
-                    }
-
-                    if result.get('synced'):
-                        results['downloaded'].append(dataset)
+            # Populate results structure
+            for dataset, metadata in sync_results.items():
+                results['tables'][dataset] = metadata
+                if metadata['status'] == 'synced':
+                    results['downloaded'].append(dataset)
 
             return results
 
@@ -1320,37 +1299,16 @@ class Factpages:
 
             # Only download if there's something to download
             if to_download:
-                def sync_one(dataset: str) -> tuple[str, dict, float]:
-                    import time as t
-                    start = t.time()
-                    result = engine.sync_dataset(dataset, strategy=strategy, progress=False)
-                    elapsed = t.time() - start
-                    return dataset, result, elapsed
-
-                with ThreadPoolExecutor(max_workers=workers) as executor:
-                    futures = [executor.submit(sync_one, ds) for ds in to_download]
-
-                    if progress:
-                        from tqdm import tqdm
-                        iterator = tqdm(as_completed(futures), total=len(futures),
-                                       desc="Downloading", unit="table")
-                    else:
-                        iterator = as_completed(futures)
-
-                    for future in iterator:
-                        dataset, result, elapsed = future.result()
-                        actual_count = result.get('record_count', 0)
-                        expected = self.db.get_remote_count(dataset) or 0
-
-                        results[dataset] = {
-                            'dataset': dataset,
-                            'status': 'synced' if result.get('synced') else 'failed',
-                            'actual_records': actual_count,
-                            'expected_records': expected,
-                            'records_match': actual_count == expected,
-                            'duration_seconds': round(elapsed, 3),
-                            'error': result.get('error') if not result.get('synced') else None
-                        }
+                # Use parallel_sync for consistent parallel fetching
+                sync_results = parallel_sync(
+                    datasets=to_download,
+                    sync_fn=lambda ds: engine.sync_dataset(ds, strategy=strategy, progress=False),
+                    workers=workers,
+                    progress=progress,
+                    desc="Downloading",
+                    get_expected_fn=lambda ds: self.db.get_remote_count(ds) or 0
+                )
+                results.update(sync_results)
 
         else:
             # Maintenance mode: ensure core entities + fix mismatches and stale datasets
@@ -1398,40 +1356,21 @@ class Factpages:
                     'tables': {}
                 }
 
-            # Download datasets with tqdm progress
-            def sync_one(dataset: str) -> tuple[str, dict, float]:
-                start = time_module.time()
-                result = engine.sync_dataset(dataset, strategy=AlwaysSync(), progress=False)
-                elapsed = time_module.time() - start
-                return dataset, result, elapsed
+            # Use parallel_sync for consistent parallel fetching
+            sync_results = parallel_sync(
+                datasets=to_fetch,
+                sync_fn=lambda ds: engine.sync_dataset(ds, strategy=AlwaysSync(), progress=False),
+                workers=workers,
+                progress=progress,
+                desc="Refreshing",
+                get_expected_fn=lambda ds: self.db.get_remote_count(ds) or 0
+            )
 
-            with ThreadPoolExecutor(max_workers=workers) as executor:
-                futures = [executor.submit(sync_one, ds) for ds in to_fetch]
-
-                if progress:
-                    from tqdm import tqdm
-                    iterator = tqdm(as_completed(futures), total=len(futures),
-                                   desc="Refreshing", unit="table")
-                else:
-                    iterator = as_completed(futures)
-
-                for future in iterator:
-                    dataset, result, elapsed = future.result()
-                    priority = 'core' if dataset in missing_core else ('mismatch' if dataset in mismatched_names else 'stale')
-
-                    actual_count = result.get('record_count', 0)
-                    expected = self.db.get_remote_count(dataset) or 0
-
-                    results[dataset] = {
-                        'dataset': dataset,
-                        'status': 'synced' if result.get('synced') else 'failed',
-                        'priority': priority,
-                        'actual_records': actual_count,
-                        'expected_records': expected,
-                        'records_match': actual_count == expected,
-                        'duration_seconds': round(elapsed, 3),
-                        'error': result.get('error') if not result.get('synced') else None
-                    }
+            # Add priority field to results
+            for dataset, metadata in sync_results.items():
+                priority = 'core' if dataset in missing_core else ('mismatch' if dataset in mismatched_names else 'stale')
+                metadata['priority'] = priority
+                results[dataset] = metadata
 
             total_elapsed = time_module.time() - start_time
 
@@ -1712,25 +1651,14 @@ class Factpages:
 
     def _fetch_all_remote_counts(self) -> int:
         """Fetch remote record counts for all tables in parallel."""
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
         all_datasets = list({**LAYERS, **TABLES}.keys())
-        counts = {}
 
-        def fetch_count(dataset: str) -> tuple[str, int]:
-            try:
-                count = self.get_count(dataset)
-                return dataset, count
-            except Exception:
-                return dataset, -1  # Mark as failed
-
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(fetch_count, ds): ds for ds in all_datasets}
-
-            for future in as_completed(futures):
-                dataset, count = future.result()
-                if count >= 0:
-                    counts[dataset] = count
+        # Use centralized parallel_count for consistent handling
+        counts = parallel_count(
+            datasets=all_datasets,
+            count_fn=self.get_count,
+            workers=8
+        )
 
         return self.db.save_remote_counts(counts)
 

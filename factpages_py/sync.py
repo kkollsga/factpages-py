@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Optional
 
 from .database import Database, FILE_MAPPING
 from .datasets import LAYERS, TABLES
+from .parallel import parallel_fetch
 
 if TYPE_CHECKING:
     from .client import Factpages
@@ -1004,10 +1005,10 @@ class SyncEngine:
                 'status': self._classify_dataset(local_count, remote_count, age_days),
             }
 
-        with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(get_counts, ds): ds for ds in all_datasets}
-            for future in as_completed(futures):
-                results.append(future.result())
+        # Use parallel_fetch for consistent parallel fetching
+        tasks = {ds: (lambda d=ds: get_counts(d)) for ds in all_datasets}
+        fetch_result = parallel_fetch(tasks, workers=workers)
+        results = list(fetch_result.values())
 
         # Classify results
         fresh = [r for r in results if r['status'] == 'fresh']
