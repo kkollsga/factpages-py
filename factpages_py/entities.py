@@ -491,35 +491,161 @@ class RelatedTableMixin:
             return custom
         return self._get_default_template()
 
-    def str_template(self, index: bool = True) -> str:
+    def template(
+        self,
+        updates: Optional[dict[int, str]] = None,
+        reset: bool = False,
+        index: bool = True
+    ) -> str:
         """
-        Show the current template for this entity type.
+        View, update, or reset the display template for this entity type.
+
+        Templates control how entities are displayed when printed. Each entity
+        type has a default template that can be customized per-database.
 
         Args:
-            index: If True, show line numbers. If False, show raw template.
+            updates: Optional dict mapping line numbers (1-indexed) to new text.
+            reset: If True, reset template to default before applying updates.
+            index: If True, show line numbers. If False, show raw template
+                   (optimized for copying into code).
 
         Returns:
             Template string with or without line numbers.
 
-        Example:
-            >>> print(discovery.str_template())
-            DISCOVERY_TEMPLATE:
-            1: "# Discovery: {name}"
+        Template Syntax:
+            Placeholders:
+                {property}              - Entity property (e.g., {name}, {status})
+                {table.column}          - Related table value
+                {table.col1+col2}       - Sum of columns
+                {value:format}          - With format spec (e.g., {value:>10,.1f})
+                {value:<20}             - Left-align with width 20
+
+            Structure:
+                # Title                 - Section header (rendered as heading)
+                ===                     - Major divider (full width line)
+                ---                     - Minor divider
+
+            Conditionals:
+                ?{condition} text       - Only show line if condition is truthy
+
+            Special Blocks:
+                @partners               - Render partners list
+
+        Creating Tables:
+            Tables with headers (3 parts: header, separator, data rows):
+
+                | Column 1    | Column 2   | Column 3   |   <- Header
+                |-------------|------------|------------|   <- Separator (with ---)
+                | {property1} | {value}    | {prop3}    |   <- Data rows
+
+            Tables without headers (just data rows, no separator):
+
+                | Label       | {value}    |
+                | Other       | {other}    |
+
+            Column widths are auto-detected from max content length.
+            Each cell gets 1 space padding on each side.
+            Default alignment: first column left, rest right.
+
+            Alignment designators (in first row for headerless, separator for headers):
+                |: cell |     = left-align
+                | cell :|     = right-align
+                |: cell :|    = center-align
+
+            Cell merging (N* prefix merges this cell with N-1 columns to the right):
+                | {prop1}  |2* {spans_2_cols}   |   <- 2* merges cols 2-3
+                |3* {spans_all_3_columns}       |   <- 3* merges all 3 cols
+
+            Cell-specific alignment (overrides column default):
+                | {prop1}  |2*: {centered} :|   |   <- centered spanning cell
+
+            Auto-merge: Missing cells at row end are merged into last cell:
+                | {a}   | {b}             |   <- {b} auto-spans remaining cols
+
+            Table dividers (thick separator between sections):
+                | {a}   | {b}   |
+                |=======|=======|    <- thick divider with ===
+                | {c}   | {d}   |
+
+            Optional top separator for headerless (defines alignments):
+                |:------|------:|     <- left-align col 1, right-align col 2
+                | {a}   | {b}   |
+
+            Grid locking: Column count locked to first row's definition.
+
+            Example - Table with header:
+                field.template({10: "| Resource | Value    |"})
+                field.template({11: "|----------|----------|"})
+                field.template({12: "| Oil      | {field_reserves.fldRecoverableOil} |"})
+
+            Example - Headerless table with alignment:
+                field.template({10: "|: Status :|: {status} :|: Operator |: {operator} :|"})
+                field.template({11: "| HC Type | {hc_type} | Area | {main_area} |"})
+
+            Example - Table with merged cells:
+                field.template({10: "| Type | Col 2 | Col 3  |"})
+                field.template({11: "|------|-------|--------|"})
+                field.template({12: "| Oil  |2* {oil_details} |"})  # spans cols 2-3
+
+        Basic Usage:
+            >>> print(field.template())           # View template with line numbers
+            FIELD_TEMPLATE:
+            1: "# Field: {name}"
             2: "==="
-            3: "Discovered: {discovery_year:<12}  HC Type: {hc_type}"
+            3: "Status: {status}"
             ...
 
-            >>> print(discovery.str_template(index=False))
-            DISCOVERY_TEMPLATE = \"\"\"
-            # Discovery: {name}
-            ===
+            >>> print(field.template({3: "Type: {hc_type}"}))  # Update line 3
+
+            >>> print(field.template({3: "New"}, reset=True))  # Reset first, then update
+
+            >>> print(field.template(index=False))  # Raw format (for copying to code)
+            FIELD_TEMPLATE = \"\"\"
+            # Field: {name}
             ...
             \"\"\"
+
+        Multi-line Updates:
+            >>> field.template({
+            ...     5: "Operator: {operator}",
+            ...     6: "Status:   {status}",
+            ...     7: "",
+            ...     8: "| Volumes | Oil | Gas |",
+            ... })
+
+        Reset to Default:
+            >>> field.template(reset=True)        # Reset and show default
+
+        Copy Template to Code:
+            >>> print(field.template(index=False))
+            # Copy output to display.py to modify the default template
         """
         entity_type = self._get_entity_type()
-        template = self._get_current_template()
         template_name = f"{entity_type.upper()}_TEMPLATE"
 
+        # Reset to default if requested
+        if reset:
+            self._db.delete_template(entity_type)
+
+        # Apply updates if provided
+        if updates:
+            template = self._get_current_template()
+            lines = template.split('\n')
+
+            for line_num, new_text in updates.items():
+                if line_num < 1:
+                    raise ValueError("Line number must be >= 1")
+                # Pad with empty lines if needed
+                while len(lines) < line_num:
+                    lines.append("")
+                # Update the line (convert to 0-indexed)
+                lines[line_num - 1] = new_text
+
+            # Save custom template
+            self._db.save_template(entity_type, '\n'.join(lines))
+
+        # Get current template (may have been updated above)
+        template = self._get_current_template()
         lines = template.split('\n')
 
         if index:
@@ -531,49 +657,6 @@ class RelatedTableMixin:
         else:
             # Show raw format (for copying to code)
             return f'{template_name} = """\n{template}\n"""'
-
-    def update_template(self, line_num: int, new_text: str) -> None:
-        """
-        Update a single line in the template.
-
-        Args:
-            line_num: Line number to update (1-indexed)
-            new_text: New text for that line
-
-        Example:
-            >>> discovery.update_template(3, "Discovered: {discovery_year}  Type: {hc_type}")
-            >>> discovery.update_template(20, "Custom footer")  # Adds padding if needed
-        """
-        if line_num < 1:
-            raise ValueError("Line number must be >= 1")
-
-        template = self._get_current_template()
-        lines = template.split('\n')
-
-        # Pad with empty lines if needed
-        while len(lines) < line_num:
-            lines.append("")
-
-        # Update the line (convert to 0-indexed)
-        lines[line_num - 1] = new_text
-
-        # Save custom template
-        entity_type = self._get_entity_type()
-        self._db.save_template(entity_type, '\n'.join(lines))
-
-    def reset_template(self) -> bool:
-        """
-        Reset template to default, removing any customizations.
-
-        Returns:
-            True if a custom template was removed, False if no custom template existed.
-
-        Example:
-            >>> discovery.reset_template()
-            True
-        """
-        entity_type = self._get_entity_type()
-        return self._db.delete_template(entity_type)
 
     def _get_primary_id_pattern(self) -> Optional[str]:
         """

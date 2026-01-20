@@ -15,12 +15,62 @@ Template Syntax:
     ===                     - Major divider (full width)
     ---                     - Minor divider
 
-    | Col1 | Col2 |         - Table header
-    |------|------|         - Table separator
-    | {a}  | {b}  |         - Table row
-
     ?{condition} text       - Conditional line (only show if condition is truthy)
     @partners               - Special block (partners list, etc.)
+
+Tables:
+    Tables with header (3 rows: header, separator, data):
+        | Column 1 | Column 2 | Column 3 |
+        |----------|----------|----------|
+        | {prop1}  | {prop2}  | {prop3}  |
+
+    Tables without header (just data rows):
+        | Label    | {value}  |
+        | Label 2  | {value2} |
+
+    Column alignment (in separator for headers, first row for headerless):
+        |: cell |               - Left-align column
+        | cell :|               - Right-align column
+        |: cell :|              - Center-align column
+        | cell |                - Default (first col left, rest right)
+
+        Example with header:
+            | Name     | Value    |
+            |:---------|----------|   <- left-align col 1, default col 2
+            | {name}   | {value}  |
+
+        Example headerless:
+            |: Label :|: {value} :|   <- center both columns
+
+    Cell merging (N* prefix merges this cell with N-1 cells to the right):
+        | Column 1 | Column 2 | Column 3 |
+        |----------|----------|----------|
+        | {prop1}  |2* {spans_2_cols}   |   <- merges cols 2-3
+        |3* {spans_all_3_columns}       |   <- merges all 3 cols
+
+    Cell-specific alignment (overrides column default):
+        | Column 1 | Column 2 | Column 3 |
+        |----------|----------|----------|
+        | {prop1}  |2*: {centered} :|   |   <- centered spanning cell
+
+    Auto-merge: Missing cells at row end are merged into last cell:
+        | Col 1 | Col 2 | Col 3 |
+        |-------|-------|-------|
+        | {a}   | {b}             |   <- {b} auto-spans cols 2-3
+
+    Table dividers (thick separator between sections):
+        | Col 1 | Col 2 |
+        |-------|-------|
+        | {a}   | {b}   |
+        |=======|=======|    <- thick divider (===)
+        | {c}   | {d}   |
+
+    Optional top separator for headerless tables:
+        |:------|------:|     <- defines alignments for headerless
+        | {a}   | {b}   |
+
+    Grid locking: Column count is locked to first row's definition.
+    All subsequent rows conform to this grid.
 
 Usage:
     from .display import render_entity
@@ -31,9 +81,427 @@ Usage:
 """
 
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime
+from dataclasses import dataclass, field
 import pandas as pd
+
+
+# =============================================================================
+# MarkdownTable - Advanced Table Rendering
+# =============================================================================
+
+@dataclass
+class Cell:
+    """Represents a single cell in the table."""
+    content: str = ""
+    span: int = 1  # Number of columns this cell spans
+    alignment: Optional[str] = None  # 'left', 'right', 'center', or None (use column default)
+
+
+@dataclass
+class TableRow:
+    """Represents a row in the table."""
+    cells: List[Cell] = field(default_factory=list)
+    is_divider: bool = False  # True for |====| divider rows
+    is_separator: bool = False  # True for |---| separator rows
+
+
+class MarkdownTable:
+    """
+    Advanced Markdown table renderer with support for:
+
+    - Cell merging: `2*` prefix merges cell with next column, `3*` merges 2 more, etc.
+    - Auto-merge: Missing cells at row end are automatically merged into last cell
+    - Dividers: `|====|` creates a thick divider row
+    - Separators: `|---|---|` creates column separator (header separator or top border)
+    - Cell alignments: `|: cell |` left, `| cell :|` right, `|: cell :|` center
+    - Column alignments: Set in first row (headerless) or separator row (with header)
+    - Grid locking: Column count locked to first row's definition
+
+    Example:
+        | Column 1 | Column 2 | Column 3 |
+        |----------|----------|----------|
+        | {prop1}  |2*: {prop2} spans 2 :|
+        |====|
+        |3*: This cell spans all 3 columns :|
+    """
+
+    def __init__(self, interpolate_fn: Callable[[str], str]):
+        """
+        Initialize with an interpolation function.
+
+        Args:
+            interpolate_fn: Function that interpolates {variables} in text
+        """
+        self.interpolate = interpolate_fn
+        self.num_cols: int = 0
+        self.col_alignments: List[str] = []  # Column default alignments
+        self.col_widths: List[int] = []  # Column widths (auto-calculated)
+        self.rows: List[TableRow] = []
+        self.has_header: bool = False
+        self.header_row: Optional[TableRow] = None
+
+    def parse(self, lines: List[str]) -> "MarkdownTable":
+        """Parse table lines and populate internal structures."""
+        if not lines:
+            return self
+
+        # Detect if table has header (look for |---| separator, not |====|)
+        self.has_header = any(
+            self._is_separator_line(line) and not self._is_divider_line(line)
+            for line in lines
+        )
+
+        # Parse first row to establish grid (column count)
+        first_line = lines[0]
+        if self._is_separator_line(first_line):
+            # Headerless table with top separator
+            self.num_cols = self._count_columns(first_line)
+            self.col_alignments = self._parse_alignments_from_separator(first_line)
+            start_idx = 1
+        else:
+            # Parse first data row for column count
+            first_row = self._parse_row(first_line, establish_grid=True)
+            self.num_cols = self._count_logical_columns(first_row)
+
+            if self.has_header:
+                # Header row
+                self.header_row = first_row
+                start_idx = 1
+            else:
+                # First row is data, parse alignments from it
+                self.col_alignments = self._extract_alignments_from_row(first_line)
+                self.rows.append(first_row)
+                start_idx = 1
+
+        # Parse remaining lines
+        header_sep_found = False
+        for line in lines[start_idx:]:
+            if self._is_divider_line(line):
+                # |====| thick divider
+                self.rows.append(TableRow(is_divider=True))
+            elif self._is_separator_line(line):
+                # |---| separator
+                if self.has_header and not header_sep_found:
+                    # This is the header separator - parse alignments, don't add to rows
+                    self.col_alignments = self._parse_alignments_from_separator(line)
+                    header_sep_found = True
+                else:
+                    # Additional separator row (should be rare)
+                    self.rows.append(TableRow(is_separator=True))
+            else:
+                # Data row
+                row = self._parse_row(line)
+                self.rows.append(row)
+
+        # Ensure we have default alignments
+        if not self.col_alignments or len(self.col_alignments) < self.num_cols:
+            self.col_alignments = self._default_alignments(self.num_cols)
+
+        return self
+
+    def render(self) -> List[str]:
+        """Render the parsed table to output lines."""
+        if self.num_cols == 0:
+            return []
+
+        # First pass: interpolate all cell content
+        self._interpolate_cells()
+
+        # Check if table has any data
+        if not self._has_data():
+            return []
+
+        # Calculate column widths
+        self._calculate_widths()
+
+        # Render output
+        result = [""]  # Leading empty line
+
+        # Header row (if present)
+        if self.header_row:
+            result.append(self._render_row(self.header_row))
+            # Header separator
+            result.append(self._render_separator())
+
+        # Data rows
+        for row in self.rows:
+            if row.is_divider:
+                result.append(self._render_divider())
+            elif row.is_separator:
+                result.append(self._render_separator())
+            else:
+                rendered = self._render_row(row)
+                if rendered:  # Skip empty rows
+                    result.append(rendered)
+
+        return result
+
+    def _is_separator_line(self, line: str) -> bool:
+        """Check if line is a separator (contains ---)."""
+        return "---" in line
+
+    def _is_divider_line(self, line: str) -> bool:
+        """Check if line is a thick divider (contains ===)."""
+        return "===" in line
+
+    def _count_columns(self, line: str) -> int:
+        """Count columns from a separator/divider line."""
+        parts = line.split("|")
+        return len([p for p in parts[1:-1] if p.strip()])
+
+    def _count_logical_columns(self, row: TableRow) -> int:
+        """Count logical columns accounting for spans."""
+        total = 0
+        for cell in row.cells:
+            total += cell.span
+        return total
+
+    def _parse_row(self, line: str, establish_grid: bool = False) -> TableRow:
+        """Parse a data row into cells."""
+        row = TableRow()
+        parts = line.split("|")[1:-1]  # Remove leading/trailing empty parts
+
+        col_idx = 0
+        for part in parts:
+            cell = self._parse_cell(part)
+
+            # Grid locking: if we've reached column limit, auto-merge
+            if not establish_grid and self.num_cols > 0:
+                remaining_cols = self.num_cols - col_idx
+                if remaining_cols <= 0:
+                    break
+                # Adjust span if it would exceed grid
+                if col_idx + cell.span > self.num_cols:
+                    cell.span = remaining_cols
+
+            row.cells.append(cell)
+            col_idx += cell.span
+
+        # Auto-merge: if row has fewer columns than grid, extend last cell
+        if not establish_grid and self.num_cols > 0 and row.cells:
+            current_span = sum(c.span for c in row.cells)
+            if current_span < self.num_cols:
+                row.cells[-1].span += (self.num_cols - current_span)
+
+        return row
+
+    def _parse_cell(self, text: str) -> Cell:
+        """Parse a single cell, extracting span and alignment."""
+        text = text.strip()
+        cell = Cell()
+
+        # Check for span prefix: 2*, 3*, etc.
+        span_match = re.match(r'^(\d+)\*(.*)$', text)
+        if span_match:
+            cell.span = int(span_match.group(1))
+            text = span_match.group(2).strip()
+
+        # Check for alignment markers
+        left_colon = text.startswith(":")
+        right_colon = text.endswith(":")
+
+        if left_colon and right_colon:
+            cell.alignment = "center"
+            text = text[1:-1].strip()
+        elif left_colon:
+            cell.alignment = "left"
+            text = text[1:].strip()
+        elif right_colon:
+            cell.alignment = "right"
+            text = text[:-1].strip()
+
+        cell.content = text
+        return cell
+
+    def _extract_alignments_from_row(self, line: str) -> List[str]:
+        """Extract column alignments from a data row."""
+        alignments = []
+        parts = line.split("|")[1:-1]
+
+        for part in parts:
+            part = part.strip()
+            # Check for span prefix
+            span_match = re.match(r'^(\d+)\*(.*)$', part)
+            if span_match:
+                span = int(span_match.group(1))
+                part = span_match.group(2).strip()
+            else:
+                span = 1
+
+            # Detect alignment
+            left_colon = part.startswith(":")
+            right_colon = part.endswith(":")
+
+            if left_colon and right_colon:
+                align = "center"
+            elif left_colon:
+                align = "left"
+            elif right_colon:
+                align = "right"
+            else:
+                align = "default"
+
+            # Add alignment for each spanned column
+            for _ in range(span):
+                alignments.append(align)
+
+        # Pad to num_cols
+        while len(alignments) < self.num_cols:
+            alignments.append("default")
+
+        return alignments
+
+    def _parse_alignments_from_separator(self, line: str) -> List[str]:
+        """Parse alignments from a separator line like |:---|---:|."""
+        alignments = []
+        parts = line.split("|")[1:-1]
+
+        for part in parts:
+            part = part.strip()
+            left_colon = part.startswith(":")
+            right_colon = part.endswith(":")
+
+            if left_colon and right_colon:
+                alignments.append("center")
+            elif left_colon:
+                alignments.append("left")
+            elif right_colon:
+                alignments.append("right")
+            else:
+                alignments.append("default")
+
+        return alignments
+
+    def _default_alignments(self, num_cols: int) -> List[str]:
+        """Return default alignments (first col left, rest right)."""
+        return ["left"] + ["right"] * (num_cols - 1) if num_cols > 0 else []
+
+    def _interpolate_cells(self):
+        """Interpolate all cell content."""
+        if self.header_row:
+            for cell in self.header_row.cells:
+                cell.content = self.interpolate(cell.content).strip()
+
+        for row in self.rows:
+            if not row.is_divider and not row.is_separator:
+                for cell in row.cells:
+                    cell.content = self.interpolate(cell.content).strip()
+
+    def _has_data(self) -> bool:
+        """Check if table has any meaningful data."""
+        def is_empty(val: str) -> bool:
+            return not val or val in ("", "0.0", "0")
+
+        # Check header
+        if self.header_row:
+            if any(not is_empty(c.content) for c in self.header_row.cells):
+                return True
+
+        # Check data rows
+        for row in self.rows:
+            if not row.is_divider and not row.is_separator:
+                if any(not is_empty(c.content) for c in row.cells):
+                    return True
+
+        return False
+
+    def _calculate_widths(self):
+        """Calculate column widths based on content."""
+        self.col_widths = [0] * self.num_cols
+
+        # From header
+        if self.header_row:
+            self._update_widths_from_row(self.header_row)
+
+        # From data rows
+        for row in self.rows:
+            if not row.is_divider and not row.is_separator:
+                self._update_widths_from_row(row)
+
+    def _update_widths_from_row(self, row: TableRow):
+        """Update column widths based on row content."""
+        col_idx = 0
+        for cell in row.cells:
+            if cell.span == 1:
+                # Simple case: single column
+                if col_idx < self.num_cols:
+                    self.col_widths[col_idx] = max(
+                        self.col_widths[col_idx],
+                        len(cell.content)
+                    )
+            else:
+                # Spanning cell: distribute width across columns
+                # For width calculation, we don't expand columns for spanning cells
+                # The cell will use the combined width of spanned columns
+                pass
+            col_idx += cell.span
+
+    def _get_effective_alignment(self, cell: Cell, col_idx: int) -> str:
+        """Get effective alignment for a cell (cell-specific or column default)."""
+        if cell.alignment:
+            return cell.alignment
+        if col_idx < len(self.col_alignments):
+            align = self.col_alignments[col_idx]
+            if align == "default":
+                return "left" if col_idx == 0 else "right"
+            return align
+        return "left" if col_idx == 0 else "right"
+
+    def _format_cell(self, content: str, width: int, alignment: str) -> str:
+        """Format cell content with alignment and padding."""
+        if alignment == "left":
+            return f" {content:<{width}} "
+        elif alignment == "right":
+            return f" {content:>{width}} "
+        elif alignment == "center":
+            return f" {content:^{width}} "
+        return f" {content:<{width}} "
+
+    def _render_row(self, row: TableRow) -> str:
+        """Render a single row."""
+        parts = []
+        col_idx = 0
+
+        for cell in row.cells:
+            # Calculate width for this cell (sum of spanned columns + padding)
+            if cell.span == 1:
+                width = self.col_widths[col_idx] if col_idx < len(self.col_widths) else 0
+            else:
+                # Spanning cell: sum widths of spanned columns + internal padding
+                end_col = min(col_idx + cell.span, len(self.col_widths))
+                width = sum(self.col_widths[col_idx:end_col])
+                # Add padding for internal column boundaries (2 spaces per boundary)
+                width += 2 * (cell.span - 1)
+
+            alignment = self._get_effective_alignment(cell, col_idx)
+            parts.append(self._format_cell(cell.content, width, alignment))
+            col_idx += cell.span
+
+        # Check if row has meaningful content
+        if all(not p.strip() or p.strip() in ("0.0", "0") for p in parts):
+            # Skip rows with only empty/zero values (except first column)
+            if len(parts) > 1:
+                has_label = parts[0].strip() and parts[0].strip() not in ("0.0", "0")
+                has_values = any(
+                    p.strip() and p.strip() not in ("0.0", "0")
+                    for p in parts[1:]
+                )
+                if has_label and not has_values:
+                    return ""
+
+        return "".join(parts)
+
+    def _render_separator(self) -> str:
+        """Render a separator line (---)."""
+        total_width = sum(self.col_widths) + 2 * self.num_cols
+        return "-" * total_width
+
+    def _render_divider(self) -> str:
+        """Render a thick divider line (===)."""
+        total_width = sum(self.col_widths) + 2 * self.num_cols
+        return "=" * total_width
 
 
 # =============================================================================
@@ -353,78 +821,23 @@ class TemplateRenderer:
         return self._interpolate(line)
 
     def _render_table(self, lines: List[str]) -> List[str]:
-        """Render a markdown table with proper alignment."""
-        if len(lines) < 2:
+        """Render a markdown table using the MarkdownTable class.
+
+        Supports:
+        - Tables with headers: | Header | / |---| / | data |
+        - Headerless tables: | data | / | data |
+        - Cell merging: 2* prefix merges cell with next column
+        - Dividers: |====| creates thick divider
+        - Cell alignments: |: left |, | right :|, |: center :|
+        - Grid locking: Column count locked to first row
+        - Auto-merge: Missing cells merged into last cell
+        """
+        if not lines:
             return []
 
-        # Parse header - get column widths from header definition
-        header_line = lines[0]
-        headers = [h.strip() for h in header_line.split("|")[1:-1]]
-
-        # Calculate column widths from header cells (includes padding)
-        raw_headers = header_line.split("|")[1:-1]
-        col_widths = [len(h) for h in raw_headers]
-
-        # Find separator line (contains ---)
-        sep_idx = 1
-        for i, line in enumerate(lines[1:], 1):
-            if "---" in line:
-                sep_idx = i
-                break
-
-        # Parse and render data rows
-        data_rows = []
-        has_data = False
-
-        for line in lines[sep_idx + 1:]:
-            cells = [c.strip() for c in line.split("|")[1:-1]]
-            rendered_cells = []
-
-            for cell in cells:
-                rendered = self._interpolate(cell)
-                # Check if cell has actual value (not empty, not zero)
-                if rendered and rendered.strip() and rendered.strip() not in ("0.0", "0"):
-                    has_data = True
-                rendered_cells.append(rendered.strip() if rendered else "")
-
-            data_rows.append(rendered_cells)
-
-        # Only render if there's data
-        if not has_data:
-            return []
-
-        # Render table
-        result = [""]
-
-        # Header row - first col left-aligned, rest right-aligned
-        header_parts = []
-        for i, h in enumerate(headers):
-            if i == 0:
-                header_parts.append(f"{h:<{col_widths[i]}}")
-            else:
-                header_parts.append(f"{h:>{col_widths[i]}}")
-        result.append("".join(header_parts))
-
-        # Separator
-        result.append("-" * sum(col_widths))
-
-        # Data rows - only include rows with some data
-        for row in data_rows:
-            row_has_data = any(
-                c and c not in ("", "0.0", "0")
-                for c in row[1:]  # Skip label column
-            )
-            if row_has_data:
-                parts = []
-                for i in range(len(headers)):
-                    val = row[i] if i < len(row) else ""
-                    if i == 0:
-                        parts.append(f"{val:<{col_widths[i]}}")
-                    else:
-                        parts.append(f"{val:>{col_widths[i]}}")
-                result.append("".join(parts))
-
-        return result
+        table = MarkdownTable(self._interpolate)
+        table.parse(lines)
+        return table.render()
 
     def _render_special_block(self, block_spec: str) -> Optional[str]:
         """Render a special block like @partners."""
