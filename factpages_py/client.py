@@ -304,8 +304,9 @@ class ClientConfig:
         >>> fp = Factpages(config=config)
     """
     # Timeout settings
-    timeout: int = 30
-    connect_timeout: int = 10
+    timeout: int = 30  # Read timeout (between bytes)
+    connect_timeout: int = 10  # Connection timeout
+    total_timeout: int = 120  # Total request timeout (2 min default per table)
 
     # Rate limiting
     rate_limit: float = 0.2  # Minimum seconds between requests
@@ -820,9 +821,14 @@ class Factpages:
             time.sleep(self.config.rate_limit - elapsed)
         self._last_request_time = time.time()
 
-    def _get_timeout(self) -> tuple[int, int]:
-        """Get timeout tuple (connect_timeout, read_timeout)."""
-        return (self.config.connect_timeout, self.config.timeout)
+    def _get_timeout(self):
+        """Get urllib3 Timeout object with connect, read, and total timeouts."""
+        from urllib3.util.timeout import Timeout
+        return Timeout(
+            connect=self.config.connect_timeout,
+            read=self.config.timeout,
+            total=self.config.total_timeout
+        )
 
     def _cached_get(self, url: str, params: dict) -> requests.Response:
         """

@@ -256,6 +256,16 @@ def parallel_sync(
 
             actual_count = result.get('record_count', 0)
             expected = get_expected_fn(dataset) if get_expected_fn else 0
+            error_msg = result.get('error') if not result.get('synced') else None
+
+            # Print error message for failed syncs
+            if error_msg and progress:
+                # Use tqdm.write to avoid breaking progress bar
+                try:
+                    from tqdm import tqdm
+                    tqdm.write(f"  {dataset}: FAILED - {error_msg}")
+                except ImportError:
+                    print(f"  {dataset}: FAILED - {error_msg}")
 
             results[dataset] = {
                 'dataset': dataset,
@@ -264,7 +274,7 @@ def parallel_sync(
                 'expected_records': expected,
                 'records_match': actual_count == expected if expected else True,
                 'duration_seconds': round(elapsed, 3),
-                'error': result.get('error') if not result.get('synced') else None
+                'error': error_msg
             }
 
     return results
