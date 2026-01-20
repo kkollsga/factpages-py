@@ -704,10 +704,31 @@ class RelatedTableMixin:
 
         return None
 
+    def _get_primary_id_value(self) -> Optional[tuple]:
+        """
+        Get the primary ID column name and value for this entity.
+
+        Returns:
+            Tuple of (column_name, value) or None if not found
+        """
+        primary_pattern = self._get_primary_id_pattern()
+        if not primary_pattern:
+            return None
+
+        # Find the column in _data that contains this pattern
+        for col, val in self._data.items():
+            if primary_pattern in col:
+                return (col, val)
+
+        return None
+
     @property
     def connections(self) -> Dict[str, List[str]]:
         """
         Get lists of tables that reference this entity and tables this entity references.
+
+        Only includes tables where actual data exists for this specific entity,
+        not just tables that could potentially relate based on column patterns.
 
         Returns a dict with:
         - 'incoming': Tables that have my primary ID as a foreign key
@@ -727,6 +748,10 @@ class RelatedTableMixin:
         if not primary_pattern:
             return {'incoming': [], 'outgoing': []}
 
+        # Get my primary ID value for data existence verification
+        primary_id_info = self._get_primary_id_value()
+        my_id_value = primary_id_info[1] if primary_id_info else None
+
         # Get my foreign keys (ID columns that are NOT my primary)
         my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
         my_foreign_keys = [col for col in my_id_cols if primary_pattern not in col]
@@ -743,7 +768,7 @@ class RelatedTableMixin:
             'discovery': 'DISCOVERY',
         }
 
-        # Find tables that reference me (have my primary ID)
+        # Find tables that reference me (have my primary ID) AND have actual data
         # Use get_columns for fast schema lookup without loading full data
         for table_name in all_tables:
             # Skip internal tables and own base table
@@ -764,8 +789,10 @@ class RelatedTableMixin:
             # Check if target table has MY primary ID → it references me
             for col in target_id_cols:
                 if primary_pattern in col:
-                    if table_name not in incoming:
-                        incoming.append(table_name)
+                    # Verify actual data exists for THIS entity (not just column match)
+                    if my_id_value is not None and self._db.query_exists(table_name, col, my_id_value):
+                        if table_name not in incoming:
+                            incoming.append(table_name)
                     break
 
             # Check for information carrier pattern (generic ID type)
@@ -776,11 +803,16 @@ class RelatedTableMixin:
                         # Check if there's a Kind column indicating which entity types
                         kind_col = col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
                         if kind_col in target_cols:
-                            # Use SQL DISTINCT for fast lookup (no DataFrame loading)
                             my_kind = entity_to_carrier_kind.get(base_table)
-                            if my_kind:
-                                unique_kinds = self._db.get_unique_values(table_name, kind_col)
-                                if my_kind in unique_kinds:
+                            if my_kind and my_id_value is not None:
+                                # Verify actual data exists for THIS entity with correct kind
+                                # Use query to check both conditions
+                                result = self._db.query(
+                                    table_name,
+                                    where={col: my_id_value, kind_col: my_kind},
+                                    limit=1
+                                )
+                                if not result.empty:
                                     incoming.append(table_name)
                         break
 
@@ -3034,10 +3066,31 @@ class Entity:
 
         return None
 
+    def _get_primary_id_value(self) -> Optional[tuple]:
+        """
+        Get the primary ID column name and value for this entity.
+
+        Returns:
+            Tuple of (column_name, value) or None if not found
+        """
+        primary_pattern = self._get_primary_id_pattern()
+        if not primary_pattern:
+            return None
+
+        # Find the column in _data that contains this pattern
+        for col, val in self._data.items():
+            if primary_pattern in col:
+                return (col, val)
+
+        return None
+
     @property
     def connections(self) -> Dict[str, List[str]]:
         """
         Get lists of tables that reference this entity and tables this entity references.
+
+        Only includes tables where actual data exists for this specific entity,
+        not just tables that could potentially relate based on column patterns.
 
         Returns a dict with:
         - 'incoming': Tables that have my primary ID as a foreign key
@@ -3056,6 +3109,10 @@ class Entity:
         if not primary_pattern:
             return {'incoming': [], 'outgoing': []}
 
+        # Get my primary ID value for data existence verification
+        primary_id_info = self._get_primary_id_value()
+        my_id_value = primary_id_info[1] if primary_id_info else None
+
         # Get my foreign keys (ID columns that are NOT my primary)
         my_foreign_keys = [col for col in my_id_cols if primary_pattern not in col]
 
@@ -3067,7 +3124,7 @@ class Entity:
             'discovery': 'DISCOVERY',
         }
 
-        # Find tables that reference me
+        # Find tables that reference me AND have actual data
         # Use get_columns for fast schema lookup without loading full data
         for table_name in all_tables:
             if table_name.startswith('_'):
@@ -3087,8 +3144,10 @@ class Entity:
             # Check if target table has MY primary ID
             for col in target_id_cols:
                 if primary_pattern in col:
-                    if table_name not in incoming:
-                        incoming.append(table_name)
+                    # Verify actual data exists for THIS entity (not just column match)
+                    if my_id_value is not None and self._db.query_exists(table_name, col, my_id_value):
+                        if table_name not in incoming:
+                            incoming.append(table_name)
                     break
 
             # Check for information carrier pattern (generic ID type)
@@ -3097,11 +3156,15 @@ class Entity:
                     if 'NpdidInformationCarrier' in col:
                         kind_col = col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
                         if kind_col in target_cols:
-                            # Use SQL DISTINCT for fast lookup (no DataFrame loading)
                             my_kind = entity_to_carrier_kind.get(self._table_name)
-                            if my_kind:
-                                unique_kinds = self._db.get_unique_values(table_name, kind_col)
-                                if my_kind in unique_kinds:
+                            if my_kind and my_id_value is not None:
+                                # Verify actual data exists for THIS entity with correct kind
+                                result = self._db.query(
+                                    table_name,
+                                    where={col: my_id_value, kind_col: my_kind},
+                                    limit=1
+                                )
+                                if not result.empty:
                                     incoming.append(table_name)
                         break
 
