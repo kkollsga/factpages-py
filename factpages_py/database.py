@@ -123,6 +123,12 @@ class Database:
         # In-memory cache for frequently accessed data
         self._cache: dict[str, pd.DataFrame] = {}
 
+        # Column name cache for efficient schema lookups
+        self._columns_cache: dict[str, list[str]] = {}
+
+        # Connection pool for persistent connections
+        self._connections: dict[Path, sqlite3.Connection] = {}
+
         # Initialize databases
         self._init_db(self.db_path)
         self._init_db(self.sideload_db_path)
@@ -159,6 +165,40 @@ class Database:
     def _is_sideloaded(self, dataset: str) -> bool:
         """Check if a dataset name indicates sideloaded data."""
         return dataset.startswith(self.SIDELOAD_PREFIX)
+
+    def _get_connection(self, db_path: Path) -> sqlite3.Connection:
+        """
+        Get or create a persistent connection with optimized settings.
+
+        Uses WAL mode for better concurrency and read performance.
+        """
+        if db_path not in self._connections:
+            conn = sqlite3.connect(str(db_path), check_same_thread=False)
+            # Enable Write-Ahead Logging for better read concurrency
+            conn.execute("PRAGMA journal_mode=WAL")
+            # Optimize for read-heavy workloads
+            conn.execute("PRAGMA synchronous=NORMAL")
+            # 64MB cache for better performance
+            conn.execute("PRAGMA cache_size=-64000")
+            # Memory-map for faster reads (256MB)
+            conn.execute("PRAGMA mmap_size=268435456")
+            self._connections[db_path] = conn
+        return self._connections[db_path]
+
+    def close(self) -> None:
+        """Close all database connections."""
+        for conn in self._connections.values():
+            try:
+                conn.close()
+            except Exception:
+                pass
+        self._connections.clear()
+        self._cache.clear()
+        self._columns_cache.clear()
+
+    def __del__(self):
+        """Cleanup connections on garbage collection."""
+        self.close()
 
     # =========================================================================
     # Core Operations
@@ -216,6 +256,129 @@ class Database:
         except KeyError:
             return None
 
+    def query(
+        self,
+        dataset: str,
+        where: Optional[dict] = None,
+        columns: Optional[list[str]] = None,
+        limit: Optional[int] = None
+    ) -> pd.DataFrame:
+        """
+        Query a dataset with SQL-level filtering (much faster than pandas filtering).
+
+        Args:
+            dataset: Dataset name
+            where: Dict of {column: value} for WHERE clause (uses AND for multiple)
+            columns: List of columns to return (None = all columns)
+            limit: Maximum rows to return
+
+        Returns:
+            Filtered DataFrame
+
+        Example:
+            >>> db.query('field_reserves', where={'fldNpdidField': 43506})
+            >>> db.query('profiles', where={'fldNpdidField': 43506}, limit=100)
+        """
+        if not self.has_dataset(dataset):
+            return pd.DataFrame()
+
+        # Build query
+        cols = "*" if columns is None else ", ".join(f'"{c}"' for c in columns)
+        query = f'SELECT {cols} FROM "{dataset}"'
+        params = []
+
+        if where:
+            conditions = []
+            for col, val in where.items():
+                conditions.append(f'"{col}" = ?')
+                params.append(val)
+            query += " WHERE " + " AND ".join(conditions)
+
+        if limit:
+            query += f" LIMIT {int(limit)}"
+
+        db_path = self._get_db_path(dataset)
+        conn = self._get_connection(db_path)
+        return pd.read_sql_query(query, conn, params=params if params else None)
+
+    def query_exists(self, dataset: str, column: str, value) -> bool:
+        """
+        Check if a value exists in a column (fast indexed lookup).
+
+        Args:
+            dataset: Dataset name
+            column: Column to check
+            value: Value to find
+
+        Returns:
+            True if value exists
+        """
+        if not self.has_dataset(dataset):
+            return False
+
+        db_path = self._get_db_path(dataset)
+        conn = self._get_connection(db_path)
+        cursor = conn.execute(
+            f'SELECT 1 FROM "{dataset}" WHERE "{column}" = ? LIMIT 1',
+            (value,)
+        )
+        return cursor.fetchone() is not None
+
+    def get_unique_values(self, dataset: str, column: str) -> set:
+        """
+        Get unique values from a column using SQL DISTINCT (much faster than pandas).
+
+        Args:
+            dataset: Dataset name
+            column: Column to get unique values from
+
+        Returns:
+            Set of unique values
+        """
+        if not self.has_dataset(dataset):
+            return set()
+
+        db_path = self._get_db_path(dataset)
+        conn = self._get_connection(db_path)
+        cursor = conn.execute(
+            f'SELECT DISTINCT "{column}" FROM "{dataset}" WHERE "{column}" IS NOT NULL'
+        )
+        return {row[0] for row in cursor.fetchall()}
+
+    def get_columns(self, dataset: str) -> Optional[list[str]]:
+        """
+        Get column names for a dataset without loading full data.
+
+        Uses SQLite PRAGMA for efficient schema lookup.
+
+        Args:
+            dataset: Dataset name
+
+        Returns:
+            List of column names, or None if dataset not found
+        """
+        # Check column cache first
+        if dataset in self._columns_cache:
+            return self._columns_cache[dataset]
+
+        # Check if in data cache (already loaded)
+        if dataset in self._cache:
+            cols = list(self._cache[dataset].columns)
+            self._columns_cache[dataset] = cols
+            return cols
+
+        # Query SQLite schema directly (fast, no data loading)
+        if not self.has_dataset(dataset):
+            return None
+
+        db_path = self._get_db_path(dataset)
+        with sqlite3.connect(db_path) as conn:
+            cursor = conn.execute(f'PRAGMA table_info("{dataset}")')
+            cols = [row[1] for row in cursor.fetchall()]  # row[1] is column name
+
+        self._columns_cache[dataset] = cols
+        return cols
+
     def put(
         self,
         dataset: str,
@@ -238,6 +401,15 @@ class Database:
             # Store the data (replace if exists)
             df.to_sql(dataset, conn, if_exists='replace', index=False)
 
+            # Create indexes on ID columns for fast joins/lookups
+            for col in df.columns:
+                if 'Npdid' in col or col.endswith('Id'):
+                    try:
+                        index_name = f"idx_{dataset}_{col}"
+                        conn.execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{dataset}" ("{col}")')
+                    except sqlite3.OperationalError:
+                        pass  # Index might already exist or column type not indexable
+
             # Update metadata
             conn.execute("""
                 INSERT OR REPLACE INTO _metadata
@@ -253,7 +425,8 @@ class Database:
             ))
             conn.commit()
 
-        # Update cache
+        # Update caches
+        self._columns_cache[dataset] = list(df.columns)
         if len(df) < 500_000:
             self._cache[dataset] = df.copy()
 
@@ -876,6 +1049,66 @@ class Database:
             with sqlite3.connect(self.sideload_db_path) as conn:
                 conn.execute("VACUUM")
             print(f"Vacuumed {self.sideload_db_path.name}")
+
+    def optimize(self, verbose: bool = True) -> dict:
+        """
+        Optimize database by creating indexes on ID columns and running ANALYZE.
+
+        Creates indexes on columns containing 'Npdid' or ending with 'Id' for
+        faster joins and lookups. Also updates SQLite query planner statistics.
+
+        Args:
+            verbose: Print progress messages
+
+        Returns:
+            Dict with optimization statistics
+
+        Example:
+            >>> fp.db.optimize()
+            Creating indexes on 75 tables...
+            Created 234 indexes
+            Running ANALYZE...
+            Done!
+        """
+        stats = {'indexes_created': 0, 'tables_processed': 0}
+
+        tables = self.list_datasets(include_sideloaded=False)
+        if verbose:
+            print(f"Creating indexes on {len(tables)} tables...")
+
+        with sqlite3.connect(self.db_path) as conn:
+            for table in tables:
+                if table.startswith('_'):
+                    continue
+
+                # Get columns for this table
+                cols = self.get_columns(table)
+                if not cols:
+                    continue
+
+                stats['tables_processed'] += 1
+
+                # Create indexes on ID columns
+                for col in cols:
+                    if 'Npdid' in col or col.endswith('Id'):
+                        try:
+                            index_name = f"idx_{table}_{col}"
+                            conn.execute(f'CREATE INDEX IF NOT EXISTS "{index_name}" ON "{table}" ("{col}")')
+                            stats['indexes_created'] += 1
+                        except sqlite3.OperationalError:
+                            pass
+
+            # Update query planner statistics
+            if verbose:
+                print(f"Created {stats['indexes_created']} indexes")
+                print("Running ANALYZE...")
+            conn.execute("ANALYZE")
+            conn.commit()
+
+        if verbose:
+            print("Done!")
+
+        return stats
 
     # =========================================================================
     # Template Customization

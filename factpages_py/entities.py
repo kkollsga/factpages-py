@@ -336,13 +336,15 @@ class RelatedTableMixin:
             >>> print(reserves.data)  # Nice formatted output
             >>> reserves.df           # Get as DataFrame
         """
-        target_df = self._db.get_or_none(table_name)
-        if target_df is None:
+        # Use fast column lookup (no data loading)
+        target_cols = self._db.get_columns(table_name)
+        if target_cols is None:
             return RelatedData(pd.DataFrame(), table_name)
 
-        # Find ID columns in both
+        # Find ID columns using column names only
         my_id_cols = self._find_id_columns(pd.DataFrame([self._data]))
-        target_id_cols = self._find_id_columns(target_df)
+        target_id_cols = [col for col in target_cols
+                        if any(p in col for p in self.ID_COLUMN_PATTERNS)]
 
         # Find common ID columns
         common = self._find_common_id_columns(my_id_cols, target_id_cols)
@@ -366,13 +368,14 @@ class RelatedTableMixin:
             if base_table in entity_to_carrier:
                 my_id_col, kind_value = entity_to_carrier[base_table]
                 kind_col = info_carrier_col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
-                if my_id_col in self._data.index and kind_col in target_df.columns:
+                if my_id_col in self._data.index and kind_col in target_cols:
                     my_value = self._data.get(my_id_col)
                     if pd.notna(my_value):
-                        result = target_df[
-                            (target_df[info_carrier_col] == my_value) &
-                            (target_df[kind_col] == kind_value)
-                        ]
+                        # Use SQL filtering instead of pandas
+                        result = self._db.query(table_name, where={
+                            info_carrier_col: my_value,
+                            kind_col: kind_value
+                        })
                         return RelatedData(result, table_name)
 
         if not common:
@@ -411,11 +414,11 @@ class RelatedTableMixin:
         if best_match is None:
             best_match = common[0]
 
-        # Filter using only the best matching ID column
+        # Filter using SQL WHERE clause (much faster with indexes)
         my_col, target_col = best_match
         my_value = self._data.get(my_col)
         if pd.notna(my_value):
-            result = target_df[target_df[target_col] == my_value]
+            result = self._db.query(table_name, where={target_col: my_value})
             return RelatedData(result, table_name)
 
         return RelatedData(pd.DataFrame(), table_name)
@@ -741,6 +744,7 @@ class RelatedTableMixin:
         }
 
         # Find tables that reference me (have my primary ID)
+        # Use get_columns for fast schema lookup without loading full data
         for table_name in all_tables:
             # Skip internal tables and own base table
             if table_name.startswith('_'):
@@ -748,11 +752,14 @@ class RelatedTableMixin:
             if table_name == base_table:
                 continue
 
-            target_df = self._db.get_or_none(table_name)
-            if target_df is None or target_df.empty:
+            # Fast column lookup (no data loading)
+            target_cols = self._db.get_columns(table_name)
+            if target_cols is None:
                 continue
 
-            target_id_cols = self._find_id_columns(target_df)
+            # Find ID columns from column names directly
+            target_id_cols = [col for col in target_cols
+                             if any(p in col for p in self.ID_COLUMN_PATTERNS)]
 
             # Check if target table has MY primary ID → it references me
             for col in target_id_cols:
@@ -768,11 +775,13 @@ class RelatedTableMixin:
                     if 'NpdidInformationCarrier' in col:
                         # Check if there's a Kind column indicating which entity types
                         kind_col = col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
-                        if kind_col in target_df.columns:
-                            # Check if this entity's type is in the kind values
+                        if kind_col in target_cols:
+                            # Use SQL DISTINCT for fast lookup (no DataFrame loading)
                             my_kind = entity_to_carrier_kind.get(base_table)
-                            if my_kind and my_kind in target_df[kind_col].unique():
-                                incoming.append(table_name)
+                            if my_kind:
+                                unique_kinds = self._db.get_unique_values(table_name, kind_col)
+                                if my_kind in unique_kinds:
+                                    incoming.append(table_name)
                         break
 
         # For outgoing, only include the BASE entity tables (not all tables with that ID)
@@ -794,9 +803,13 @@ class RelatedTableMixin:
             'NpdidBsnsArrArea': 'business_arrangement_area',
         }
 
-        # Find which base tables I reference via my foreign keys
+        # Find which base tables I reference via my foreign keys (only if FK value is not null)
         outgoing_base = set()
         for my_fk in my_foreign_keys:
+            # Check if this FK has a non-null value
+            fk_value = self._data.get(my_fk)
+            if fk_value is None or (isinstance(fk_value, float) and pd.isna(fk_value)):
+                continue  # Skip null FK values
             for pattern, base_table in pattern_to_base_table.items():
                 if pattern in my_fk and base_table in all_tables:
                     outgoing_base.add(base_table)
@@ -1249,13 +1262,18 @@ class Field(RelatedTableMixin):
                 filtered['fldLicenseeTo'].isna() | (filtered['fldLicenseeTo'] > target_ms)
             ]
 
-        partners = []
-        for _, row in filtered.iterrows():
-            partners.append({
+        # Use vectorized operations instead of iterrows (much faster)
+        if filtered.empty:
+            return PartnersList([], field_name=self.name, as_of=as_of)
+
+        partners = [
+            {
                 'company': row.get('cmpLongName', ''),
                 'share': float(row.get('fldCompanyShare', 0) or 0),
                 'is_operator': row.get('cmpLongName', '') == self.operator,
-            })
+            }
+            for row in filtered.to_dict('records')
+        ]
 
         partners = sorted(partners, key=lambda x: x['share'], reverse=True)
         return PartnersList(partners, field_name=self.name, as_of=as_of)
@@ -2397,14 +2415,18 @@ class Company(RelatedTableMixin):
             operated = fields[fields['cmpLongName'] == self.name]
             operated_fields = set(operated['fldName'].tolist())
 
-        interests = []
-        for _, row in current.iterrows():
-            field_name = row.get('fldName', '')
-            interests.append({
-                'field': field_name,
+        # Use vectorized operations instead of iterrows (much faster)
+        if current.empty:
+            return FieldInterestsList([], company_name=self.name)
+
+        interests = [
+            {
+                'field': row.get('fldName', ''),
                 'share': float(row.get('fldLicenseeInterest', 0)),
-                'is_operator': field_name in operated_fields,
-            })
+                'is_operator': row.get('fldName', '') in operated_fields,
+            }
+            for row in current.to_dict('records')
+        ]
 
         # Sort by share descending
         interests = sorted(interests, key=lambda x: x['share'], reverse=True)
@@ -2609,14 +2631,18 @@ class License(RelatedTableMixin):
                 (current['prlLicenseeDateValidTo'] >= today)
             ]
 
-        partners = []
-        for _, row in current.iterrows():
-            company = row.get('cmpLongName', '')
-            partners.append({
-                'company': company,
+        # Use vectorized operations instead of iterrows (much faster)
+        if current.empty:
+            return PartnersList([], field_name=self.name)
+
+        partners = [
+            {
+                'company': row.get('cmpLongName', ''),
                 'share': float(row.get('prlLicenseeInterest', 0) or 0),
-                'is_operator': company == self.operator,
-            })
+                'is_operator': row.get('cmpLongName', '') == self.operator,
+            }
+            for row in current.to_dict('records')
+        ]
 
         partners = sorted(partners, key=lambda x: x['share'], reverse=True)
         return PartnersList(partners, field_name=self.name)
@@ -2915,13 +2941,15 @@ class Entity:
             >>> field_df = reserves.related('field')
             >>> print(field_df.data)  # Nice output
         """
-        target_df = self._db.get_or_none(table_name)
-        if target_df is None:
+        # Use fast column lookup (no data loading)
+        target_cols = self._db.get_columns(table_name)
+        if target_cols is None:
             return RelatedData(pd.DataFrame(), table_name)
 
-        # Find ID columns in both
+        # Find ID columns using column names only
         my_id_cols = self.find_id_columns(pd.DataFrame([self._data]))
-        target_id_cols = self.find_id_columns(target_df)
+        target_id_cols = [col for col in target_cols
+                        if any(p in col for p in self.ID_COLUMN_PATTERNS)]
 
         # Find common ID columns
         common = self.find_common_id_columns(my_id_cols, target_id_cols)
@@ -2961,11 +2989,11 @@ class Entity:
         if best_match is None:
             best_match = common[0]
 
-        # Filter using only the best matching ID column
+        # Filter using SQL WHERE clause (much faster with indexes)
         my_col, target_col = best_match
         my_value = self._data.get(my_col)
         if pd.notna(my_value):
-            result = target_df[target_df[target_col] == my_value]
+            result = self._db.query(table_name, where={target_col: my_value})
             return RelatedData(result, table_name)
 
         return RelatedData(pd.DataFrame(), table_name)
@@ -3040,17 +3068,21 @@ class Entity:
         }
 
         # Find tables that reference me
+        # Use get_columns for fast schema lookup without loading full data
         for table_name in all_tables:
             if table_name.startswith('_'):
                 continue
             if table_name == self._table_name:
                 continue
 
-            target_df = self._db.get_or_none(table_name)
-            if target_df is None or target_df.empty:
+            # Fast column lookup (no data loading)
+            target_cols = self._db.get_columns(table_name)
+            if target_cols is None:
                 continue
 
-            target_id_cols = self.find_id_columns(target_df)
+            # Find ID columns from column names directly
+            target_id_cols = [col for col in target_cols
+                             if any(p in col for p in self.ID_COLUMN_PATTERNS)]
 
             # Check if target table has MY primary ID
             for col in target_id_cols:
@@ -3064,10 +3096,13 @@ class Entity:
                 for col in target_id_cols:
                     if 'NpdidInformationCarrier' in col:
                         kind_col = col.replace('NpdidInformationCarrier', 'InformationCarrierKind')
-                        if kind_col in target_df.columns:
+                        if kind_col in target_cols:
+                            # Use SQL DISTINCT for fast lookup (no DataFrame loading)
                             my_kind = entity_to_carrier_kind.get(self._table_name)
-                            if my_kind and my_kind in target_df[kind_col].unique():
-                                incoming.append(table_name)
+                            if my_kind:
+                                unique_kinds = self._db.get_unique_values(table_name, kind_col)
+                                if my_kind in unique_kinds:
+                                    incoming.append(table_name)
                         break
 
         # Map patterns to their base tables for outgoing
@@ -3088,9 +3123,13 @@ class Entity:
             'NpdidBsnsArrArea': 'business_arrangement_area',
         }
 
-        # Find which base tables I reference via my foreign keys
+        # Find which base tables I reference via my foreign keys (only if FK value is not null)
         outgoing_base = set()
         for my_fk in my_foreign_keys:
+            # Check if this FK has a non-null value
+            fk_value = self._data.get(my_fk)
+            if fk_value is None or (isinstance(fk_value, float) and pd.isna(fk_value)):
+                continue  # Skip null FK values
             for pattern, base_table in pattern_to_base_table.items():
                 if pattern in my_fk and base_table in all_tables:
                     outgoing_base.add(base_table)

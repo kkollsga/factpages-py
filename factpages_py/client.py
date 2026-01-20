@@ -64,12 +64,20 @@ def _convert_unix_ts(val):
         return None
 
 
+def _is_likely_timestamp_column(col_name: str) -> bool:
+    """Check if column name suggests it contains timestamps."""
+    col_lower = col_name.lower()
+    # Common date/time patterns in column names
+    patterns = ['date', 'updated', 'created', 'time', 'timestamp']
+    return any(p in col_lower for p in patterns)
+
+
 def _convert_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     Convert Unix timestamp columns (milliseconds) to ISO date strings.
 
-    Detects columns with 'date' in the name (case-insensitive) and converts
-    large integer values (Unix timestamps in ms) to ISO format strings.
+    Detects columns by name patterns (date, updated, created, time) and by
+    value range (13-digit integers typical of Unix ms timestamps).
 
     Args:
         df: DataFrame with potential timestamp columns
@@ -81,23 +89,20 @@ def _convert_timestamp_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     for col in df.columns:
-        # Check if column name suggests it's a date
-        if 'date' not in col.lower():
-            continue
-
-        # Check if column contains timestamp-like values
         sample = df[col].dropna()
         if sample.empty:
             continue
 
         first_val = sample.iloc[0]
 
-        # Unix timestamps in ms are typically 13 digits (> 1e12)
-        # and represent dates after year 2001
-        # Check for numeric types including numpy integers
+        # Check if value looks like Unix timestamp in ms (13 digits, > 1e12)
         try:
-            if float(first_val) > 1e12:
-                df[col] = df[col].apply(_convert_unix_ts)
+            val = float(first_val)
+            # Valid range: 2001-01-01 to 2100-01-01 in ms
+            if 9.78e11 < val < 4.1e12:
+                # Either column name suggests date, or it's a likely timestamp
+                if _is_likely_timestamp_column(col) or (val > 1e12 and val < 2e12):
+                    df[col] = df[col].apply(_convert_unix_ts)
         except (ValueError, TypeError):
             pass
 
