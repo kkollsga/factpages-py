@@ -67,7 +67,7 @@ def format_field_summary(
 
         for _, row in licensees.head(5).iterrows():
             company = row.get('cmpLongName', 'Unknown')
-            share = row.get('fldLicenseeInterest', 0) or 0
+            share = row.get('fldCompanyShare', 0) or 0
             lines.append(f"  {company:<40} {share:>6.2f}%")
 
         if len(licensees) > 5:

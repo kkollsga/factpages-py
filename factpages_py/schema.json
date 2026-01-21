@@ -131,7 +131,7 @@
       },
       "connection_name": "OWNED_BY",
       "properties": {
-        "share": "fldLicenseeInterest",
+        "share": "fldCompanyShare",
         "is_operator": "fldLicenseeIsOperator"
       }
     },

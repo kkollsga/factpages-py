@@ -522,7 +522,7 @@ HC Type:    {hc_type:<20}  Main Area: {main_area}
 | NGL (mtoe)   | | {field_reserves.fldRecoverableNGL} | {field_reserves.fldRemainingNGL} |
 | Cond (mSm3)  | | {field_reserves.fldRecoverableCondensate} | {field_reserves.fldRemainingCondensate} |
 
-@partners:field_licensee_hst.fldNpdidField=id|cmpLongName|fldLicenseeInterest|fldLicenseeDateValidTo
+@partners:field_licensee_hst.fldNpdidField=id|cmpLongName|fldCompanyShare|fldLicenseeTo
 """
 
 
@@ -722,7 +722,7 @@ TEMPLATES = {
 
 # Partners block config: table.match_col=entity_key|company_col|share_col|date_col|title
 PARTNERS_DEFAULTS = {
-    "field": ("field_licensee_hst", "fldNpdidField", "id", "cmpLongName", "fldLicenseeInterest", "fldLicenseeDateValidTo", "Partners"),
+    "field": ("field_licensee_hst", "fldNpdidField", "id", "cmpLongName", "fldCompanyShare", "fldLicenseeTo", "Partners"),
     "license": ("licence_licensee_hst", "prlNpdidLicence", "id", "cmpLongName", "prlLicenseeInterest", "prlLicenseeDateValidTo", "Licensees"),
 }
 
@@ -879,10 +879,17 @@ class TemplateRenderer:
         if df is None or df.empty:
             return ""
 
-        # Filter to current partners
-        today = datetime.now().strftime('%Y-%m-%d')
+        # Filter to current partners (handle both Unix timestamps and date strings)
         if date_col and date_col in df.columns:
-            df = df[df[date_col].isna() | (df[date_col] >= today)]
+            col_dtype = df[date_col].dtype
+            if col_dtype in ['float64', 'int64']:
+                # Unix timestamp in milliseconds
+                today_ms = datetime.now().timestamp() * 1000
+                df = df[df[date_col].isna() | (df[date_col] > today_ms)]
+            else:
+                # String date format
+                today = datetime.now().strftime('%Y-%m-%d')
+                df = df[df[date_col].isna() | (df[date_col] >= today)]
 
         if df.empty:
             return ""
