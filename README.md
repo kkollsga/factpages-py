@@ -4,6 +4,20 @@ Python library for accessing Norwegian Petroleum Directorate (Sodir) FactPages d
 
 Access comprehensive petroleum data from the Norwegian Continental Shelf including fields, discoveries, wellbores, facilities, licenses, production data, and more.
 
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Setup & Data Refresh](#setup--data-refresh)
+- [Entity Access](#entity-access)
+- [Exploring Data](#exploring-data)
+- [Raw DataFrame Access](#raw-dataframe-access)
+- [Database Status](#database-status)
+- [Graph Building](#graph-building)
+- [Configuration](#configuration)
+- [Available Datasets](#available-datasets)
+- [Examples](#examples)
+
 ## Installation
 
 ```bash
@@ -21,9 +35,15 @@ fp = Factpages(data_dir="./factpages_data")
 # Download core datasets
 fp.refresh()
 
-# Access a field
+# Access a field by name (case-insensitive)
 troll = fp.field("troll")
-print(troll)
+print(troll.name)            # TROLL
+print(troll.operator)        # Equinor Energy AS
+print(troll.status)          # Producing
+print(troll.id)              # 46437
+
+# Or access by ID
+troll = fp.field(46437)
 ```
 
 ---
@@ -122,7 +142,7 @@ Each entity type has an accessor with these methods:
 ```python
 # Get entity by name or ID
 troll = fp.field("troll")           # By name (case-insensitive)
-troll = fp.field(43506)             # By npdid
+troll = fp.field(46437)             # By npdid
 
 # Get random entity (no arguments)
 random_field = fp.field()           # Returns a random field
@@ -143,12 +163,11 @@ fp.field.all()                      # DataFrame of all fields
 ### Fields
 
 ```python
-troll = fp.field("troll")           # By name (case-insensitive)
-troll = fp.field(43506)             # By npdid
-troll = fp.field()                  # Random field
+troll = fp.field("troll")
 
 print(troll)                        # Formatted display
 print(troll.name)                   # TROLL
+print(troll.id)                     # 46437
 print(troll.operator)               # Equinor Energy AS
 print(troll.status)                 # Producing
 print(troll.hc_type)                # OIL/GAS
@@ -158,22 +177,20 @@ print(troll.discovery_year)         # 1979
 ### Discoveries
 
 ```python
-sverdrup = fp.discovery("johan sverdrup")  # By name
-sverdrup = fp.discovery(28851043)          # By ID
-sverdrup = fp.discovery()                  # Random
+sverdrup = fp.discovery("johan sverdrup")
 
-fp.discovery.list()                        # All discovery names
+print(sverdrup.name)                       # 16/2-6 Johan Sverdrup
+print(sverdrup.id)                         # 18387202
 fp.discovery.count()                       # 638
 ```
 
 ### Wellbores
 
 ```python
-well = fp.wellbore("31/2-1")      # By name
-well = fp.wellbore(1234567)       # By npdid
-well = fp.wellbore()              # Random wellbore
+well = fp.wellbore("31/2-1")
 
-fp.wellbore.list()                # All wellbore names
+print(well.name)                  # 31/2-1
+print(well.id)                    # 398
 fp.wellbore.count()               # 9731
 ```
 
@@ -450,7 +467,7 @@ last_sync = fp.db.get_last_sync('field')
 
 ## Graph Building
 
-Export data for knowledge graph libraries like [rusty-graph](https://github.com/your/rusty-graph):
+Export data for knowledge graph libraries:
 
 ### Quick Export
 
@@ -612,4 +629,4 @@ Data provided by the [Norwegian Offshore Directorate](https://www.sodir.no/) (So
 
 - [Sodir FactPages](https://factpages.sodir.no/)
 - [Sodir REST API Documentation](https://factmaps.sodir.no/api/rest/services/DataService/Data/FeatureServer)
-- [GitHub Repository](https://github.com/your-username/factpages-py)
+- [GitHub Repository](https://github.com/kkollsga/factpages-py)
