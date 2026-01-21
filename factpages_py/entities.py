@@ -2430,14 +2430,21 @@ class Company(RelatedTableMixin):
         if df.empty:
             return FieldInterestsList([], company_name=self.name)
 
-        # Get current interests (no end date or future end date)
+        # Get current interests by filtering on date
+        # Dates are stored as Unix timestamps in milliseconds
         current = df.copy()
-        today = datetime.now().strftime('%Y-%m-%d')
+        today_ms = datetime.now().timestamp() * 1000
 
-        if 'fldLicenseeDateValidTo' in current.columns:
+        # Filter: started (fldLicenseeFrom <= today) and not ended (fldLicenseeTo is null or > today)
+        if 'fldLicenseeFrom' in current.columns:
             current = current[
-                current['fldLicenseeDateValidTo'].isna() |
-                (current['fldLicenseeDateValidTo'] >= today)
+                current['fldLicenseeFrom'].isna() |
+                (current['fldLicenseeFrom'] <= today_ms)
+            ]
+        if 'fldLicenseeTo' in current.columns:
+            current = current[
+                current['fldLicenseeTo'].isna() |
+                (current['fldLicenseeTo'] > today_ms)
             ]
 
         # Get field operator info to mark operated fields
@@ -2454,7 +2461,7 @@ class Company(RelatedTableMixin):
         interests = [
             {
                 'field': row.get('fldName', ''),
-                'share': float(row.get('fldLicenseeInterest', 0)),
+                'share': float(row.get('fldCompanyShare', 0)),
                 'is_operator': row.get('fldName', '') in operated_fields,
             }
             for row in current.to_dict('records')
