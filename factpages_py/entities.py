@@ -19,6 +19,13 @@ from typing import TYPE_CHECKING, Optional, List, Dict, Any
 
 import pandas as pd
 
+try:
+    import ipywidgets as widgets
+    from IPython.display import display
+    _HAS_IPYWIDGETS = True
+except ImportError:
+    _HAS_IPYWIDGETS = False
+
 if TYPE_CHECKING:
     from .database import Database
 
@@ -498,8 +505,9 @@ class RelatedTableMixin:
         self,
         updates: Optional[dict[int, str]] = None,
         reset: bool = False,
-        index: bool = True
-    ) -> str:
+        index: bool = True,
+        interactive: bool = False
+    ) -> Optional[str]:
         """
         View, update, or reset the display template for this entity type.
 
@@ -510,10 +518,12 @@ class RelatedTableMixin:
             updates: Optional dict mapping line numbers (1-indexed) to new text.
             reset: If True, reset template to default before applying updates.
             index: If True, show line numbers. If False, show raw template
-                   (optimized for copying into code).
+                   (optimized for copying into code). Ignored if interactive=True.
+            interactive: If True, display an ipywidgets TextArea for in-place
+                   editing (requires ipywidgets). Shows raw text without line numbers.
 
         Returns:
-            Template string with or without line numbers.
+            Template string with or without line numbers, or None if interactive=True.
 
         Template Syntax:
             Placeholders:
@@ -622,6 +632,10 @@ class RelatedTableMixin:
         Copy Template to Code:
             >>> print(field.template(index=False))
             # Copy output to display.py to modify the default template
+
+        Interactive Editing (Jupyter):
+            >>> field.template(interactive=True)  # Opens editable TextArea widget
+            # Edit template in the widget and click 'Save Template' to persist
         """
         entity_type = self._get_entity_type()
         template_name = f"{entity_type.upper()}_TEMPLATE"
@@ -650,6 +664,42 @@ class RelatedTableMixin:
         # Get current template (may have been updated above)
         template = self._get_current_template()
         lines = template.split('\n')
+
+        if interactive:
+            # Interactive mode with ipywidgets TextArea
+            if not _HAS_IPYWIDGETS:
+                raise ImportError(
+                    "ipywidgets is required for interactive mode. "
+                    "Install with: pip install ipywidgets"
+                )
+
+            # Create TextArea widget with raw template text (no line numbers)
+            textarea = widgets.Textarea(
+                value=template,
+                description=f'{template_name}:',
+                layout=widgets.Layout(width='100%', height='400px'),
+                style={'description_width': 'initial'}
+            )
+
+            # Save button
+            save_button = widgets.Button(
+                description='Save Template',
+                button_style='primary',
+                icon='save'
+            )
+
+            # Status label for feedback
+            status_label = widgets.Label(value='')
+
+            def on_save_click(b):
+                self._db.save_template(entity_type, textarea.value)
+                status_label.value = '✓ Template saved'
+
+            save_button.on_click(on_save_click)
+
+            # Display widgets
+            display(widgets.VBox([textarea, widgets.HBox([save_button, status_label])]))
+            return None
 
         if index:
             # Show with line numbers
