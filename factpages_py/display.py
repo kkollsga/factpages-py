@@ -7,9 +7,28 @@ All display formats are defined here for easy modification.
 Template Syntax:
     {property}              - Entity property (e.g., {name}, {status})
     {table.column}          - Related table value (e.g., {field_reserves.fldRecoverableOil})
-    {table.col1+col2}       - Sum of columns
     {value:format}          - With format spec (e.g., {value:>10,.1f})
     {value:<20}             - Left-align with width 20
+
+    Arithmetic expressions (columns without table inherit from first):
+        {table.col1 + col2 + col3}      - Addition
+        {table.col1 - col2}             - Subtraction
+        {table.col1 * col2}             - Multiplication
+        {table.col1 / col2}             - Division
+        {table.col1 ^ 2}                - Power
+
+    Functions:
+        {pow(table.col, 2)}             - Power
+        {sqrt(table.col)}               - Square root
+        {exp(table.col)}                - Exponential
+        {log(table.col)}                - Natural logarithm
+        {abs(table.col)}                - Absolute value
+        {min(table.col1, col2)}         - Minimum
+        {max(table.col1, col2)}         - Maximum
+
+    Conditionals:
+        {if(table.col > 100, table.col, 0)}     - If-then-else
+        Comparisons: <, >, <=, >=, ==, !=
 
     # Title                 - Section header
     ===                     - Major divider (full width)
@@ -81,10 +100,389 @@ Usage:
 """
 
 import re
+import math
 from typing import Any, Callable, Dict, List, Optional
 from datetime import datetime
 from dataclasses import dataclass, field
 import pandas as pd
+
+
+# =============================================================================
+# ExpressionParser - Arithmetic Expression Evaluator
+# =============================================================================
+
+class ExpressionParser:
+    """
+    Parse and evaluate arithmetic expressions with variable resolution.
+
+    Supports:
+        - Arithmetic: +, -, *, /, ^ (power)
+        - Functions: pow(x,y), sqrt(x), exp(x), log(x), abs(x), min(a,b), max(a,b)
+        - Conditionals: if(condition, true_val, false_val)
+        - Comparisons: <, >, <=, >=, ==, !=
+        - Variables: table.column syntax with inherited table names
+
+    Example:
+        parser = ExpressionParser(resolver_fn)
+        result = parser.evaluate("table.col1 + col2 * 2")
+        result = parser.evaluate("if(table.value > 100, table.value, 0)")
+        result = parser.evaluate("sqrt(pow(table.x, 2) + pow(table.y, 2))")
+    """
+
+    # Token types
+    NUMBER = 'NUMBER'
+    IDENTIFIER = 'IDENTIFIER'
+    OPERATOR = 'OPERATOR'
+    COMPARISON = 'COMPARISON'
+    LPAREN = 'LPAREN'
+    RPAREN = 'RPAREN'
+    COMMA = 'COMMA'
+    FUNCTION = 'FUNCTION'
+    EOF = 'EOF'
+
+    FUNCTIONS = {'pow', 'sqrt', 'exp', 'log', 'abs', 'min', 'max', 'if'}
+
+    def __init__(self, resolver: Callable[[str], Any]):
+        """
+        Args:
+            resolver: Function that resolves variable names to values.
+                      Takes a string like "table.column" and returns the value.
+        """
+        self.resolver = resolver
+        self.text = ""
+        self.pos = 0
+        self.current_token = None
+        self.default_table = None
+
+    def evaluate(self, expression: str) -> Any:
+        """Evaluate an expression string and return the result."""
+        self.text = expression.strip()
+        self.pos = 0
+        self.default_table = None
+        self.current_token = self._next_token()
+
+        if self.current_token[0] == self.EOF:
+            return None
+
+        result = self._parse_expression()
+
+        if self.current_token[0] != self.EOF:
+            raise ValueError(f"Unexpected token: {self.current_token[1]}")
+
+        return result
+
+    def _next_token(self):
+        """Get the next token from the input."""
+        # Skip whitespace
+        while self.pos < len(self.text) and self.text[self.pos].isspace():
+            self.pos += 1
+
+        if self.pos >= len(self.text):
+            return (self.EOF, None)
+
+        char = self.text[self.pos]
+
+        # Number (including decimals)
+        if char.isdigit() or (char == '.' and self.pos + 1 < len(self.text) and self.text[self.pos + 1].isdigit()):
+            return self._read_number()
+
+        # Comparison operators (must check before single-char operators)
+        if char in '<>=!' and self.pos + 1 < len(self.text):
+            two_char = self.text[self.pos:self.pos + 2]
+            if two_char in ('<=', '>=', '==', '!='):
+                self.pos += 2
+                return (self.COMPARISON, two_char)
+            if char in '<>':
+                self.pos += 1
+                return (self.COMPARISON, char)
+
+        # Single character tokens
+        if char == '(':
+            self.pos += 1
+            return (self.LPAREN, '(')
+        if char == ')':
+            self.pos += 1
+            return (self.RPAREN, ')')
+        if char == ',':
+            self.pos += 1
+            return (self.COMMA, ',')
+        if char in '+-*/^':
+            self.pos += 1
+            return (self.OPERATOR, char)
+
+        # Identifier (variable name or function)
+        if char.isalpha() or char == '_':
+            return self._read_identifier()
+
+        raise ValueError(f"Unexpected character: {char}")
+
+    def _read_number(self):
+        """Read a number token."""
+        start = self.pos
+        has_dot = False
+
+        while self.pos < len(self.text):
+            char = self.text[self.pos]
+            if char.isdigit():
+                self.pos += 1
+            elif char == '.' and not has_dot:
+                has_dot = True
+                self.pos += 1
+            else:
+                break
+
+        return (self.NUMBER, float(self.text[start:self.pos]))
+
+    def _read_identifier(self):
+        """Read an identifier (variable or function name)."""
+        start = self.pos
+
+        while self.pos < len(self.text):
+            char = self.text[self.pos]
+            if char.isalnum() or char in '_.':
+                self.pos += 1
+            else:
+                break
+
+        name = self.text[start:self.pos]
+
+        # Check if it's a function (followed by parenthesis)
+        # Look ahead for '('
+        save_pos = self.pos
+        while save_pos < len(self.text) and self.text[save_pos].isspace():
+            save_pos += 1
+
+        if save_pos < len(self.text) and self.text[save_pos] == '(' and name.lower() in self.FUNCTIONS:
+            return (self.FUNCTION, name.lower())
+
+        return (self.IDENTIFIER, name)
+
+    def _parse_expression(self):
+        """Parse an expression (lowest precedence: comparison)."""
+        left = self._parse_additive()
+
+        while self.current_token[0] == self.COMPARISON:
+            op = self.current_token[1]
+            self.current_token = self._next_token()
+            right = self._parse_additive()
+            left = self._apply_comparison(op, left, right)
+
+        return left
+
+    def _parse_additive(self):
+        """Parse addition and subtraction."""
+        left = self._parse_multiplicative()
+
+        while self.current_token[0] == self.OPERATOR and self.current_token[1] in '+-':
+            op = self.current_token[1]
+            self.current_token = self._next_token()
+            right = self._parse_multiplicative()
+
+            if left is None:
+                left = 0
+            if right is None:
+                right = 0
+
+            if op == '+':
+                left = float(left) + float(right)
+            else:
+                left = float(left) - float(right)
+
+        return left
+
+    def _parse_multiplicative(self):
+        """Parse multiplication and division."""
+        left = self._parse_power()
+
+        while self.current_token[0] == self.OPERATOR and self.current_token[1] in '*/':
+            op = self.current_token[1]
+            self.current_token = self._next_token()
+            right = self._parse_power()
+
+            if left is None or right is None:
+                return None
+
+            if op == '*':
+                left = float(left) * float(right)
+            else:
+                if float(right) == 0:
+                    return None
+                left = float(left) / float(right)
+
+        return left
+
+    def _parse_power(self):
+        """Parse exponentiation (right associative)."""
+        base = self._parse_unary()
+
+        if self.current_token[0] == self.OPERATOR and self.current_token[1] == '^':
+            self.current_token = self._next_token()
+            exp = self._parse_power()  # Right associative
+
+            if base is None or exp is None:
+                return None
+
+            return math.pow(float(base), float(exp))
+
+        return base
+
+    def _parse_unary(self):
+        """Parse unary minus."""
+        if self.current_token[0] == self.OPERATOR and self.current_token[1] == '-':
+            self.current_token = self._next_token()
+            val = self._parse_unary()
+            return -float(val) if val is not None else None
+
+        return self._parse_primary()
+
+    def _parse_primary(self):
+        """Parse primary expressions: numbers, variables, functions, parentheses."""
+        token_type, token_value = self.current_token
+
+        # Number literal
+        if token_type == self.NUMBER:
+            self.current_token = self._next_token()
+            return token_value
+
+        # Function call
+        if token_type == self.FUNCTION:
+            return self._parse_function_call(token_value)
+
+        # Parenthesized expression
+        if token_type == self.LPAREN:
+            self.current_token = self._next_token()
+            result = self._parse_expression()
+            if self.current_token[0] != self.RPAREN:
+                raise ValueError("Expected closing parenthesis")
+            self.current_token = self._next_token()
+            return result
+
+        # Variable/identifier
+        if token_type == self.IDENTIFIER:
+            return self._resolve_variable(token_value)
+
+        if token_type == self.EOF:
+            return None
+
+        raise ValueError(f"Unexpected token: {token_value}")
+
+    def _parse_function_call(self, func_name: str):
+        """Parse a function call like pow(x, y) or if(cond, a, b)."""
+        self.current_token = self._next_token()  # consume function name
+
+        if self.current_token[0] != self.LPAREN:
+            raise ValueError(f"Expected '(' after function {func_name}")
+        self.current_token = self._next_token()  # consume '('
+
+        # Parse arguments
+        args = []
+        if self.current_token[0] != self.RPAREN:
+            args.append(self._parse_expression())
+
+            while self.current_token[0] == self.COMMA:
+                self.current_token = self._next_token()  # consume ','
+                args.append(self._parse_expression())
+
+        if self.current_token[0] != self.RPAREN:
+            raise ValueError(f"Expected ')' after function arguments")
+        self.current_token = self._next_token()  # consume ')'
+
+        return self._apply_function(func_name, args)
+
+    def _apply_function(self, func_name: str, args: list):
+        """Apply a function to its arguments."""
+        if func_name == 'if':
+            if len(args) != 3:
+                raise ValueError("if() requires 3 arguments: if(condition, true_val, false_val)")
+            condition, true_val, false_val = args
+            return true_val if condition else false_val
+
+        if func_name == 'pow':
+            if len(args) != 2:
+                raise ValueError("pow() requires 2 arguments")
+            if args[0] is None or args[1] is None:
+                return None
+            return math.pow(float(args[0]), float(args[1]))
+
+        if func_name == 'sqrt':
+            if len(args) != 1:
+                raise ValueError("sqrt() requires 1 argument")
+            if args[0] is None or args[0] < 0:
+                return None
+            return math.sqrt(float(args[0]))
+
+        if func_name == 'exp':
+            if len(args) != 1:
+                raise ValueError("exp() requires 1 argument")
+            if args[0] is None:
+                return None
+            return math.exp(float(args[0]))
+
+        if func_name == 'log':
+            if len(args) != 1:
+                raise ValueError("log() requires 1 argument")
+            if args[0] is None or args[0] <= 0:
+                return None
+            return math.log(float(args[0]))
+
+        if func_name == 'abs':
+            if len(args) != 1:
+                raise ValueError("abs() requires 1 argument")
+            if args[0] is None:
+                return None
+            return abs(float(args[0]))
+
+        if func_name == 'min':
+            if len(args) < 2:
+                raise ValueError("min() requires at least 2 arguments")
+            valid_args = [a for a in args if a is not None]
+            return min(valid_args) if valid_args else None
+
+        if func_name == 'max':
+            if len(args) < 2:
+                raise ValueError("max() requires at least 2 arguments")
+            valid_args = [a for a in args if a is not None]
+            return max(valid_args) if valid_args else None
+
+        raise ValueError(f"Unknown function: {func_name}")
+
+    def _apply_comparison(self, op: str, left, right):
+        """Apply a comparison operator."""
+        if left is None or right is None:
+            return False
+
+        left, right = float(left), float(right)
+
+        if op == '<':
+            return left < right
+        if op == '>':
+            return left > right
+        if op == '<=':
+            return left <= right
+        if op == '>=':
+            return left >= right
+        if op == '==':
+            return left == right
+        if op == '!=':
+            return left != right
+
+        raise ValueError(f"Unknown comparison operator: {op}")
+
+    def _resolve_variable(self, name: str):
+        """Resolve a variable name to its value."""
+        self.current_token = self._next_token()
+
+        # Handle table.column syntax
+        if '.' in name:
+            table, column = name.split('.', 1)
+            self.default_table = table  # Set as default for subsequent variables
+            return self.resolver(name)
+        elif self.default_table:
+            # Use inherited table
+            return self.resolver(f"{self.default_table}.{name}")
+        else:
+            # Direct property
+            return self.resolver(name)
 
 
 # =============================================================================
@@ -289,6 +687,11 @@ class MarkdownTable:
 
     def _parse_cell(self, text: str) -> Cell:
         """Parse a single cell, extracting span and alignment."""
+        # Check for alignment markers BEFORE stripping
+        # Colon must be directly adjacent to the pipe (at start/end of raw text)
+        left_colon = text.startswith(":")
+        right_colon = text.endswith(":")
+
         text = text.strip()
         cell = Cell()
 
@@ -296,11 +699,11 @@ class MarkdownTable:
         span_match = re.match(r'^(\d+)\*(.*)$', text)
         if span_match:
             cell.span = int(span_match.group(1))
-            text = span_match.group(2).strip()
-
-        # Check for alignment markers
-        left_colon = text.startswith(":")
-        right_colon = text.endswith(":")
+            remainder = span_match.group(2)
+            # Re-check alignment on remainder (for cases like |2*:centered:|)
+            left_colon = remainder.startswith(":")
+            right_colon = remainder.endswith(":")
+            text = remainder.strip()
 
         if left_colon and right_colon:
             cell.alignment = "center"
@@ -321,19 +724,24 @@ class MarkdownTable:
         parts = line.split("|")[1:-1]
 
         for part in parts:
+            # Check for alignment markers BEFORE stripping
+            # Colon must be directly adjacent to the pipe
+            left_colon = part.startswith(":")
+            right_colon = part.endswith(":")
+
             part = part.strip()
             # Check for span prefix
             span_match = re.match(r'^(\d+)\*(.*)$', part)
             if span_match:
                 span = int(span_match.group(1))
-                part = span_match.group(2).strip()
+                remainder = span_match.group(2)
+                # Re-check alignment on remainder
+                left_colon = remainder.startswith(":")
+                right_colon = remainder.endswith(":")
             else:
                 span = 1
 
             # Detect alignment
-            left_colon = part.startswith(":")
-            right_colon = part.endswith(":")
-
             if left_colon and right_colon:
                 align = "center"
             elif left_colon:
@@ -980,43 +1388,59 @@ class TemplateRenderer:
         return re.sub(r'\{([^}]+)\}', replacer, text)
 
     def _resolve_value(self, var_expr: str) -> Any:
-        """Resolve a variable expression like 'name' or 'field_reserves.fldRecoverableOil'."""
-        # Check for table.column or table.col1+col2 syntax
+        """Resolve a variable expression with full arithmetic support.
+
+        Supports:
+            {property}                          - Entity property
+            {table.column}                      - Related table value
+            {table.col1 + col2 + col3}          - Arithmetic with inherited table
+            {table.col1 * col2 / col3}          - Full arithmetic: +, -, *, /, ^
+            {pow(table.col1, 2)}                - Functions: pow, sqrt, exp, log, abs, min, max
+            {if(table.val > 100, table.val, 0)} - Conditionals with comparisons
+        """
+        # Check if expression needs the full parser (has operators or functions)
+        has_operators = any(op in var_expr for op in ['+', '-', '*', '/', '^', '<', '>', '=', '!'])
+        has_functions = any(f + '(' in var_expr for f in ExpressionParser.FUNCTIONS)
+
+        if has_operators or has_functions:
+            # Use full expression parser
+            parser = ExpressionParser(self._resolve_simple_value)
+            try:
+                return parser.evaluate(var_expr)
+            except (ValueError, TypeError):
+                return None
+
+        # Simple case: just a variable reference
+        return self._resolve_simple_value(var_expr)
+
+    def _resolve_simple_value(self, var_expr: str) -> Any:
+        """Resolve a simple variable (no operators)."""
+        # Check for table.column syntax
         if "." in var_expr:
-            parts = var_expr.split(".", 1)
-            table_name = parts[0]
-            col_expr = parts[1]
-
-            # Get related table data
-            if table_name in self.MATCH_KEYS:
-                match_col, entity_key = self.MATCH_KEYS[table_name]
-            else:
-                # Try to infer from table name
-                match_col = None
-                entity_key = "id"
-
-            df = self._get_related_table(table_name, match_col, entity_key)
-            if df is None or df.empty:
-                return None
-
-            row = df.iloc[0]
-
-            # Handle column expressions with +
-            if "+" in col_expr:
-                total = 0
-                for col in col_expr.split("+"):
-                    val = row.get(col.strip(), 0)
-                    if pd.notna(val):
-                        total += float(val)
-                return total if total > 0 else None
-            else:
-                val = row.get(col_expr)
-                if pd.notna(val):
-                    return float(val) if isinstance(val, (int, float)) else val
-                return None
+            table_name, col_name = var_expr.split(".", 1)
+            return self._get_table_column_value(table_name, col_name)
 
         # Direct entity property
         return self._get_value(var_expr)
+
+    def _get_table_column_value(self, table_name: str, col_name: str) -> Any:
+        """Get a single column value from a related table."""
+        # Get related table data
+        if table_name in self.MATCH_KEYS:
+            match_col, entity_key = self.MATCH_KEYS[table_name]
+        else:
+            match_col = None
+            entity_key = "id"
+
+        df = self._get_related_table(table_name, match_col, entity_key)
+        if df is None or df.empty:
+            return None
+
+        row = df.iloc[0]
+        val = row.get(col_name)
+        if pd.notna(val):
+            return float(val) if isinstance(val, (int, float)) else val
+        return None
 
     def _get_value(self, property_name: str) -> Any:
         """Get a value from the entity."""

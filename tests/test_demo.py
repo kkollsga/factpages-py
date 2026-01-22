@@ -2,7 +2,7 @@ from factpages_py import Factpages
 
 import pytest
 
-@pytest.fixture()
+@pytest.fixture(scope="session")
 def fp():
     # Initialize client with data directory
     fp_obj = Factpages(data_dir="./factpages_data")
@@ -61,4 +61,29 @@ def test_company_count(fp):
 def test_equinor(fp):
     equinor = fp.company("equinor")
     assert "EQUINOR" in equinor.name.upper()
+
+
+# Licence tests (British spelling)
+def test_licence_count(fp):
+    assert fp.licence.count() > 0
+    assert len(fp.licence.list()) == fp.licence.count()
+
+
+# Facility tests
+def test_facility_count(fp):
+    assert fp.facility.count() > 0
+
+
+# Wellbore specific lookup
+def test_wellbore_lookup(fp):
+    wellbore = fp.wellbore("33/9-1")
+    assert "33/9-1" in wellbore.name
+
+
+# Entity string representation
+def test_entity_str(fp):
+    troll = fp.field("troll")
+    str_repr = str(troll)
+    assert "TROLL" in str_repr
+    assert len(str_repr) > 100
 
