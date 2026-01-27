@@ -39,6 +39,7 @@ from datetime import datetime, timezone
 from .datasets import LAYERS, TABLES, FACTMAPS_LAYERS, METADATA_BASE_URL, METADATA_TABLES
 from .database import Database
 from .parallel import parallel_sync, parallel_count
+from .analysis import AnalysisMixin
 
 
 def _convert_unix_ts(val):
@@ -423,7 +424,7 @@ class RequestCache:
             self._cache.clear()
 
 
-class Factpages:
+class Factpages(AnalysisMixin):
     """
     Main client for Norwegian Petroleum Factpages data.
 
