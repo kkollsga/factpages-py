@@ -60,9 +60,10 @@ class AnalysisMixin:
 
         field_row = field.iloc[0]
         field_id = field_row.get('fldNpdidField')
+        field_name = field_row.get('fldName')
 
         # Get related data
-        production = self._get_field_production(field_id)
+        production = self._get_field_production(field_id, field_name)
         reserves = self._get_field_reserves(field_id)
         licensees = self._get_field_licensees(field_id)
         operators = self._get_field_operators(field_id)
@@ -75,12 +76,15 @@ class AnalysisMixin:
             operators=operators,
         )
 
-    def _get_field_production(self, field_id: int) -> Optional[pd.DataFrame]:
-        """Get production data for a field."""
-        prod = self.db.get_or_none('field_production_monthly')
+    def _get_field_production(self, field_id: int, field_name: str = None) -> Optional[pd.DataFrame]:
+        """Get production data for a field from profiles table."""
+        prod = self.db.get_or_none('profiles')
         if prod is None:
             return None
-        return prod[prod['fldNpdidField'] == field_id]
+        # Profiles uses prfNpdidInformationCarrier or prfInformationCarrier (name)
+        if field_name:
+            return prod[prod['prfInformationCarrier'] == field_name.upper()]
+        return prod[prod['prfNpdidInformationCarrier'] == field_id]
 
     def _get_field_reserves(self, field_id: int) -> Optional[pd.DataFrame]:
         """Get reserves data for a field."""
@@ -91,14 +95,14 @@ class AnalysisMixin:
 
     def _get_field_licensees(self, field_id: int) -> Optional[pd.DataFrame]:
         """Get licensee data for a field."""
-        licensees = self.db.get_or_none('field_licensee')
+        licensees = self.db.get_or_none('field_licensee_hst')
         if licensees is None:
             return None
         return licensees[licensees['fldNpdidField'] == field_id]
 
     def _get_field_operators(self, field_id: int) -> Optional[pd.DataFrame]:
         """Get operator history for a field."""
-        operators = self.db.get_or_none('field_operator')
+        operators = self.db.get_or_none('field_operator_hst')
         if operators is None:
             return None
         return operators[operators['fldNpdidField'] == field_id]

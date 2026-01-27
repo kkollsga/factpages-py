@@ -32,46 +32,130 @@ def format_field_summary(
     lines.append(f"HC Type:    {field.get('fldHcType', 'N/A')}")
     lines.append(f"Main Area:  {field.get('fldMainArea', 'N/A')}")
 
-    # Production info
+    # Discovery info
+    disc_well = field.get('wlbName')
+    disc_year = field.get('fldDiscoveryYear')
+    if disc_well or disc_year:
+        disc_info = []
+        if disc_well:
+            disc_info.append(disc_well)
+        if disc_year:
+            disc_info.append(str(int(disc_year)))
+        lines.append(f"Discovered: {' ('.join(disc_info)}{')' if disc_year and disc_well else ''}")
+
+    # Get production data
+    prod_header = ""
+    prod_oil = ""
+    prod_gas = ""
+    prod_ngl = ""
+    prod_cond = ""
+
     if production is not None and not production.empty:
-        latest = production.sort_values(['prfYear', 'prfMonth'], ascending=False).iloc[0]
-        lines.append("")
-        lines.append(f"CURRENT PRODUCTION ({int(latest.get('prfMonth', 0))}/{int(latest.get('prfYear', 0))})")
+        monthly = production[production['prfMonth'] > 0]
+        if not monthly.empty:
+            latest_prod = monthly.sort_values(['prfYear', 'prfMonth'], ascending=False).iloc[0]
+            month = int(latest_prod.get('prfMonth', 0))
+            year = int(latest_prod.get('prfYear', 0))
+            month_names = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            month_name = month_names[month] if 0 < month <= 12 else str(month)
+            prod_header = f"PRODUCTION ({month_name} {year})"
 
-        oil = latest.get('prfPrdOilNetMillSm3', 0) or 0
-        gas = latest.get('prfPrdGasNetBillSm3', 0) or 0
+            p_oil = latest_prod.get('prfPrdOilNetMillSm3', 0) or 0
+            p_gas = latest_prod.get('prfPrdGasNetBillSm3', 0) or 0
+            p_ngl = latest_prod.get('prfPrdNGLNetMillSm3', 0) or 0
+            p_cond = latest_prod.get('prfPrdCondensateNetMillSm3', 0) or 0
 
-        if oil > 0:
-            lines.append(f"  Oil:  {oil * 1000:.1f} kSm3/month")
-        if gas > 0:
-            lines.append(f"  Gas:  {gas * 1000:.1f} MSm3/month")
+            if p_oil > 0:
+                prod_oil = f"{p_oil * 1000:.0f} kSm3"
+            if p_gas > 0:
+                prod_gas = f"{p_gas * 1000:.0f} MSm3"
+            if p_ngl > 0:
+                prod_ngl = f"{p_ngl * 1000:.0f} kSm3"
+            if p_cond > 0:
+                prod_cond = f"{p_cond * 1000:.0f} kSm3"
 
-    # Reserves info
+    # Reserves info - side by side with production
     if reserves is not None and not reserves.empty:
-        latest = reserves.iloc[-1]
-        lines.append("")
-        lines.append("RESERVES (Remaining)")
+        # Get latest year's data
+        if 'fldVersion' in reserves.columns:
+            latest = reserves.sort_values('fldVersion', ascending=False).iloc[0]
+        else:
+            latest = reserves.iloc[-1]
 
-        oil = latest.get('fldRecoverableOil', 0) or 0
-        gas = latest.get('fldRecoverableGas', 0) or 0
+        year = latest.get('fldVersion', '')
+        year_str = f" ({int(year)})" if year else ""
+
+        lines.append("")
+
+        # Header line
+        res_header = f"RESERVES (Remaining){year_str}"
+        if prod_header:
+            lines.append(f"{res_header:<40} {prod_header}")
+        else:
+            lines.append(res_header)
+
+        # Show remaining reserves - skip if 0 or NaN
+        oil = latest.get('fldRemainingOil', 0) or 0
+        gas = latest.get('fldRemainingGas', 0) or 0
+        ngl = latest.get('fldRemainingNGL', 0) or 0
+        cond = latest.get('fldRemainingCondensate', 0) or 0
 
         if oil > 0:
-            lines.append(f"  Oil:  {oil:.1f} mill Sm3")
+            line = f"  Oil:   {oil:.1f} mSm3"
+            if prod_oil:
+                lines.append(f"{line:<40} Oil:  {prod_oil}")
+            else:
+                lines.append(line)
+        elif prod_oil:
+            lines.append(f"{'':<40} Oil:  {prod_oil}")
+
         if gas > 0:
-            lines.append(f"  Gas:  {gas:.1f} bill Sm3")
+            line = f"  Gas:   {gas:.1f} bSm3"
+            if prod_gas:
+                lines.append(f"{line:<40} Gas:  {prod_gas}")
+            else:
+                lines.append(line)
+        elif prod_gas:
+            lines.append(f"{'':<40} Gas:  {prod_gas}")
 
-    # Ownership
+        if ngl > 0:
+            line = f"  NGL:   {ngl:.1f} mtoe"
+            if prod_ngl:
+                lines.append(f"{line:<40} NGL:  {prod_ngl}")
+            else:
+                lines.append(line)
+        elif prod_ngl:
+            lines.append(f"{'':<40} NGL:  {prod_ngl}")
+
+        if cond > 0:
+            line = f"  Cond:  {cond:.1f} mSm3"
+            if prod_cond:
+                lines.append(f"{line:<40} Cond: {prod_cond}")
+            else:
+                lines.append(line)
+        elif prod_cond:
+            lines.append(f"{'':<40} Cond: {prod_cond}")
+
+    # Current equity splits
     if licensees is not None and not licensees.empty:
-        lines.append("")
-        lines.append("OWNERSHIP")
+        # Filter for current licensees (fldLicenseeTo is NaN = still active)
+        if 'fldLicenseeTo' in licensees.columns:
+            current = licensees[licensees['fldLicenseeTo'].isna()]
+        else:
+            current = licensees
 
-        for _, row in licensees.head(5).iterrows():
-            company = row.get('cmpLongName', 'Unknown')
-            share = row.get('fldCompanyShare', 0) or 0
-            lines.append(f"  {company:<40} {share:>6.2f}%")
+        if not current.empty:
+            # Sort by share descending
+            current = current.sort_values('fldCompanyShare', ascending=False)
 
-        if len(licensees) > 5:
-            lines.append(f"  ... and {len(licensees) - 5} more")
+            lines.append("")
+            lines.append("EQUITY")
+
+            for _, row in current.iterrows():
+                company = row.get('cmpLongName', 'Unknown')
+                share = row.get('fldCompanyShare', 0) or 0
+                lines.append(f"  {company:<40} {share:>6.2f}%")
 
     return '\n'.join(lines)
 
