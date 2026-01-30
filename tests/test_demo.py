@@ -1,15 +1,4 @@
-from factpages_py import Factpages
-
 import pytest
-
-@pytest.fixture(scope="session")
-def fp():
-    # Initialize client with data directory
-    fp_obj = Factpages(data_dir="./factpages_data")
-
-    # Download core datasets
-    fp_obj.refresh()
-    yield fp_obj
 
 
 # Field tests
