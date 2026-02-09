@@ -3459,37 +3459,37 @@ class Pipeline(RelatedTableMixin):
 
     @property
     def id(self) -> int:
-        return int(self._data.get('pipNpdidPipeline', 0))
+        return int(self._data.get('pplNpdidPipeline', 0))
 
     @property
     def name(self) -> str:
-        return self._data.get('pipName', '')
+        return self._data.get('pplName', '')
 
     @property
     def medium(self) -> str:
         """What the pipeline carries (GAS, OIL, WATER, etc.)."""
-        return self._data.get('pipMedium', '')
+        return self._data.get('pplMedium', '')
 
     @property
     def dimension(self) -> Optional[float]:
         """Pipeline diameter in inches."""
-        dim = self._data.get('pipDimension')
+        dim = self._data.get('pplDimension')
         return float(dim) if pd.notna(dim) else None
 
     @property
     def status(self) -> str:
         """Current status."""
-        return self._data.get('pipCurrentPhase', '')
+        return self._data.get('pplCurrentPhase', '')
 
     @property
     def from_facility(self) -> str:
         """Starting facility name."""
-        return self._data.get('pipFromFacility', '')
+        return self._data.get('fclNameFrom', '')
 
     @property
     def to_facility(self) -> str:
         """Ending facility name."""
-        return self._data.get('pipToFacility', '')
+        return self._data.get('fclNameTo', '')
 
     @property
     def operator(self) -> str:
@@ -3499,7 +3499,7 @@ class Pipeline(RelatedTableMixin):
     @property
     def main_area(self) -> str:
         """Main area."""
-        return self._data.get('pipMainArea', '')
+        return self._data.get('pplMainGroupingName', '')
 
     @property
     def geometry(self) -> Optional[dict]:
@@ -3545,7 +3545,7 @@ class Play(RelatedTableMixin):
 
     @property
     def id(self) -> int:
-        return int(self._data.get('plyNpdidPlay', 0))
+        return int(self._data.get('plyNPDID', 0))
 
     @property
     def name(self) -> str:
@@ -3554,12 +3554,12 @@ class Play(RelatedTableMixin):
     @property
     def status(self) -> str:
         """Play status (PUBLIC, CONFIDENTIAL, etc.)."""
-        return self._data.get('plyStatus', '')
+        return self._data.get('plyConfirmed', '')
 
     @property
     def main_area(self) -> str:
         """Main area."""
-        return self._data.get('plyMainArea', '')
+        return self._data.get('plyRegion', '')
 
     @property
     def geometry(self) -> Optional[dict]:

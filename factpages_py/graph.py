@@ -138,8 +138,8 @@ class GraphEndpoints:
             'facility': 'fclNpdidFacility',
             'licence': 'prlNpdidLicence',
             'company': 'cmpNpdidCompany',
-            'pipeline': 'pipNpdidPipeline',
-            'play': 'plyNpdidPlay',
+            'pipeline': 'pplNpdidPipeline',
+            'play': 'plyNPDID',
         }
         return defaults.get(entity_type)
 

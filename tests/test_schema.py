@@ -220,7 +220,7 @@ class TestSchemaNpdidParsing:
         assert SchemaRegistry.NPDID_PREFIX_MAP.get("fcl") == "facility"
         assert SchemaRegistry.NPDID_PREFIX_MAP.get("cmp") == "company"
         assert SchemaRegistry.NPDID_PREFIX_MAP.get("prl") == "licence"
-        assert SchemaRegistry.NPDID_PREFIX_MAP.get("pip") == "pipeline"
+        assert SchemaRegistry.NPDID_PREFIX_MAP.get("ppl") == "pipeline"
         assert SchemaRegistry.NPDID_PREFIX_MAP.get("ply") == "play"
 
     def test_npdid_alias_patterns(self):

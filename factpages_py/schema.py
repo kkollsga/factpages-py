@@ -1049,7 +1049,7 @@ class SchemaRegistry:
         'fcl': 'facility',
         'cmp': 'company',
         'prl': 'licence',
-        'pip': 'pipeline',
+        'ppl': 'pipeline',
         'ply': 'play',
         'baa': 'bsns_arr_area',
     }

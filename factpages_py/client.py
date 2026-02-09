@@ -530,10 +530,10 @@ class Factpages(AnalysisMixin):
             self, 'facility', Facility, 'fclNpdidFacility', 'fclName'
         )
         self.pipeline = EntityAccessor(
-            self, 'pipeline', Pipeline, 'pipNpdidPipeline', 'pipName'
+            self, 'pipeline', Pipeline, 'pplNpdidPipeline', 'pplName'
         )
         self.play = EntityAccessor(
-            self, 'play', Play, 'plyNpdidPlay', 'plyName'
+            self, 'play', Play, 'plyNPDID', 'plyName'
         )
         self.block = EntityAccessor(
             self, 'block', Block, 'blkNpdidBlock', 'blkName'

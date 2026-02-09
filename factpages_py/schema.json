@@ -79,8 +79,8 @@
     "pipeline": {
       "table_id": 6100,
       "node_type": "Pipeline",
-      "id_field": "pipNpdidPipeline",
-      "name_field": "pipName",
+      "id_field": "pplNpdidPipeline",
+      "name_field": "pplName",
       "has_geometry": true,
       "rename": {},
       "foreign_keys": {}
@@ -109,7 +109,7 @@
     "play": {
       "table_id": 7800,
       "node_type": "Play",
-      "id_field": "plyNpdidPlay",
+      "id_field": "plyNPDID",
       "name_field": "plyName",
       "has_geometry": true,
       "rename": {},
@@ -280,10 +280,10 @@
     "discovery": ["dscNpdidDiscovery", "npdid_discovery"],
     "wellbore": ["wlbNpdidWellbore", "npdid_wellbore"],
     "facility": ["fclNpdidFacility", "npdid_facility"],
-    "pipeline": ["pipNpdidPipeline", "npdid_pipeline"],
+    "pipeline": ["pplNpdidPipeline", "npdid_pipeline"],
     "licence": ["prlNpdidLicence", "npdid_licence"],
     "company": ["cmpNpdidCompany", "npdid_company"],
-    "play": ["plyNpdidPlay", "npdid_play"]
+    "play": ["plyNPDID", "npdid_play"]
   },
 
   "connection_names": {
