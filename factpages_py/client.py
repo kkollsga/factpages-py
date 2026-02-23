@@ -1155,6 +1155,10 @@ class Factpages(AnalysisMixin):
         # Convert Unix timestamp columns to ISO date strings
         df = _convert_timestamp_columns(df)
 
+        # Apply dataset-specific post-processing (ocean_id, quadrant int)
+        from .postprocess import postprocess as _postprocess
+        df = _postprocess(dataset, df)
+
         if store and not df.empty:
             self.db.put(dataset, df, source="api")
 
@@ -1391,6 +1395,74 @@ class Factpages(AnalysisMixin):
             }
 
         return results
+
+    # =========================================================================
+    # Post-processing
+    # =========================================================================
+
+    def reprocess(
+        self,
+        datasets: Optional[list[str]] = None,
+        progress: bool = True
+    ) -> dict:
+        """
+        Re-apply post-processing to already-downloaded data (no API calls).
+
+        Use this after upgrading factpages_py to apply new transforms
+        without re-downloading everything.
+
+        Transforms applied:
+        - ocean_id column added to tables with mainArea columns
+        - qadName converted to integer in quadrant and block tables
+
+        Args:
+            datasets: Specific datasets to reprocess (default: all applicable)
+            progress: Show progress messages
+
+        Returns:
+            Dict mapping dataset names to record counts
+
+        Example:
+            >>> fp.reprocess()  # Reprocess all applicable tables
+            >>> fp.reprocess(['field', 'quadrant'])  # Specific tables only
+        """
+        from .postprocess import postprocess, OCEAN_COLUMNS
+
+        if datasets is None:
+            targets = list(OCEAN_COLUMNS.keys()) + ["quadrant", "block"]
+            datasets = sorted(set(ds for ds in targets if self.db.has_dataset(ds)))
+
+        if progress:
+            print(f"Reprocessing {len(datasets)} datasets...")
+
+        results = {}
+        for ds in datasets:
+            if not self.db.has_dataset(ds):
+                if progress:
+                    print(f"  {ds}: not downloaded, skipping")
+                continue
+            df = self.db.get(ds)
+            df = postprocess(ds, df)
+            self.db.put(ds, df, source="reprocessed")
+            results[ds] = len(df)
+            if progress:
+                print(f"  {ds}: {len(df):,} records")
+
+        self._ensure_ocean_table()
+        if progress:
+            print("  ocean: 3 records (synthetic)")
+            print("Done!")
+
+        return results
+
+    def _ensure_ocean_table(self) -> None:
+        """Create/refresh the synthetic ocean reference table."""
+        from .postprocess import OCEAN_MAP
+        ocean_df = pd.DataFrame([
+            {"ocean_id": v, "ocean_name": k}
+            for k, v in OCEAN_MAP.items()
+        ])
+        self.db.put("ocean", ocean_df, source="synthetic")
 
     def stats(
         self,

@@ -31,7 +31,7 @@ import pandas as pd
 FILE_MAPPING = {
     "entities": [
         "discovery", "field", "wellbore", "facility", "pipeline",
-        "licence", "play", "block", "quadrant", "company",
+        "licence", "play", "block", "quadrant", "company", "ocean",
     ],
     "geometries": [
         "discovery", "field", "wellbore", "facility", "pipeline",
